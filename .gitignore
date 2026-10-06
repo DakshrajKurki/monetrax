@@ -8,3 +8,4 @@ chrome-tmp
 .DS_Store
 .agent-artifacts/
 .env
+.agent-artifacts/
