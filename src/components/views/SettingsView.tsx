@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useAMLStore } from '../../store/useAMLStore';
 import { pageVariants } from '../common/MotionComponents';
+import { PageHeader } from '../common/PageHeader';
 
 export const SettingsView: React.FC = () => {
   const addToast = useAMLStore((s) => s.addToast);
@@ -51,37 +52,28 @@ export const SettingsView: React.FC = () => {
       className="w-full max-w-4xl mx-auto flex flex-col gap-6 pb-16"
     >
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-light text-[var(--text)] tracking-tight">
-              System Settings & Configuration
-            </h2>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--sage-2)]/20 text-[var(--sage-2)] font-mono font-medium border border-[var(--sage-2)]/30">
-              Analyst Preferences
-            </span>
-          </div>
-          <p className="text-xs text-[var(--muted)] mt-1 font-light">
-            Calibrate detection thresholds, real-time ingestion velocity, visual motion dynamics, and Gemini AI inference modes.
-          </p>
-        </div>
-
-        <button
-          onClick={handleSaveSettings}
-          className="pill-btn-primary text-xs flex items-center gap-1.5 self-start sm:self-auto"
-        >
-          <CheckCircle2 className="w-3.5 h-3.5" />
-          <span>Save Preferences</span>
-        </button>
-      </div>
+      <PageHeader
+        title="System Settings & Configuration"
+        subtitle="Calibrate detection thresholds, real-time ingestion velocity, visual motion dynamics, and Gemini AI inference modes."
+        actions={
+          <button
+            onClick={handleSaveSettings}
+            className="pill-btn-primary text-xs flex items-center gap-1.5"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Save Preferences</span>
+          </button>
+        }
+        showPeriodPicker={false}
+      />
 
       {/* Settings Sections Grid */}
       <div className="space-y-6">
         {/* Detection Sensitivity */}
-        <div className="glass-panel p-6 border border-[var(--line)] space-y-4">
+        <div className="fintech-card p-6 border border-[var(--line)] space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
             <div className="flex items-center gap-2.5">
-              <Sliders className="w-4 h-4 text-[var(--sage-2)]" />
+              <Sliders className="w-4 h-4 text-[var(--brand-orange)]" />
               <h3 className="text-sm font-medium text-white">
                 ML Detection Alert Threshold
               </h3>
@@ -102,7 +94,7 @@ export const SettingsView: React.FC = () => {
             step="5"
             value={alertThreshold}
             onChange={(e) => setAlertThreshold(Number(e.target.value))}
-            className="w-full accent-white h-1.5 bg-white/10 rounded-lg cursor-pointer"
+            className="w-full accent-[var(--brand-orange)] h-1.5 bg-white/10 rounded-lg cursor-pointer"
           />
 
           <div className="flex justify-between text-[11px] font-mono text-[var(--muted)]">
@@ -113,15 +105,15 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* Stream Simulation Speed */}
-        <div className="glass-panel p-6 border border-[var(--line)] space-y-4">
+        <div className="fintech-card p-6 border border-[var(--line)] space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
             <div className="flex items-center gap-2.5">
-              <Zap className="w-4 h-4 text-[var(--sage-2)]" />
+              <Zap className="w-4 h-4 text-[var(--brand-orange)]" />
               <h3 className="text-sm font-medium text-white">
                 Stream Simulation Velocity
               </h3>
             </div>
-            <span className="text-xs font-mono text-[var(--sage-3)] uppercase">
+            <span className="text-xs font-mono text-[var(--brand-orange)] uppercase">
               {streamSpeed}
             </span>
           </div>
@@ -141,7 +133,7 @@ export const SettingsView: React.FC = () => {
                 onClick={() => setStreamSpeed(opt.id as any)}
                 className={`p-3 rounded-xl text-left border transition-all ${
                   streamSpeed === opt.id
-                    ? 'border-white bg-white/[0.08] text-white'
+                    ? 'border-[var(--brand-orange)] bg-[var(--brand-orange)]/10 text-white'
                     : 'border-[var(--line)] hover:border-white/20 text-[var(--muted)]'
                 }`}
               >
@@ -153,26 +145,26 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* Motion Level Preference */}
-        <div className="glass-panel p-6 border border-[var(--line)] space-y-4">
+        <div className="fintech-card p-6 border border-[var(--line)] space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
             <div className="flex items-center gap-2.5">
-              <Eye className="w-4 h-4 text-[var(--sage-2)]" />
+              <Eye className="w-4 h-4 text-[var(--brand-orange)]" />
               <h3 className="text-sm font-medium text-white">
                 Motion & Animation Dynamics
               </h3>
             </div>
-            <span className="text-xs font-mono text-[var(--sage-3)] uppercase">
+            <span className="text-xs font-mono text-[var(--brand-orange)] uppercase">
               {motionLevel}
             </span>
           </div>
 
           <p className="text-xs text-[var(--muted)] font-light">
-            Respect system accessibility preferences or adjust continuous sage orb drift and page transition blurring.
+            Respect system accessibility preferences or adjust continuous cursor spotlight and page transition effects.
           </p>
 
           <div className="grid grid-cols-2 gap-3">
             {[
-              { id: 'full', label: 'Full Dynamic Motion', desc: 'Slow drifting glows, 3D orbits, particle curves' },
+              { id: 'full', label: 'Full Dynamic Motion', desc: 'Cursor spotlight, smooth 3D globe dives, page transitions' },
               { id: 'reduced', label: 'Reduced Motion', desc: 'Instantaneous transitions, static ambient background' },
             ].map((opt) => (
               <button
@@ -180,7 +172,7 @@ export const SettingsView: React.FC = () => {
                 onClick={() => setMotionLevel(opt.id as any)}
                 className={`p-3 rounded-xl text-left border transition-all ${
                   motionLevel === opt.id
-                    ? 'border-white bg-white/[0.08] text-white'
+                    ? 'border-[var(--brand-orange)] bg-[var(--brand-orange)]/10 text-white'
                     : 'border-[var(--line)] hover:border-white/20 text-[var(--muted)]'
                 }`}
               >
@@ -192,15 +184,15 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* AI Operational Mode */}
-        <div className="glass-panel p-6 border border-[var(--line)] space-y-4">
+        <div className="fintech-card p-6 border border-[var(--line)] space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
             <div className="flex items-center gap-2.5">
-              <Sparkles className="w-4 h-4 text-[var(--sage-2)]" />
+              <Sparkles className="w-4 h-4 text-[var(--brand-orange)]" />
               <h3 className="text-sm font-medium text-white">
                 "Risky" AI Engine Operational Mode
               </h3>
             </div>
-            <span className="text-xs font-mono text-[var(--sage-3)] uppercase">
+            <span className="text-xs font-mono text-[var(--brand-orange)] uppercase">
               {aiMode === 'live' ? 'Live Gemini Proxy' : 'Offline Heuristic'}
             </span>
           </div>
@@ -219,7 +211,7 @@ export const SettingsView: React.FC = () => {
                 onClick={() => setAiMode(opt.id as any)}
                 className={`p-3 rounded-xl text-left border transition-all ${
                   aiMode === opt.id
-                    ? 'border-white bg-white/[0.08] text-white'
+                    ? 'border-[var(--brand-orange)] bg-[var(--brand-orange)]/10 text-white'
                     : 'border-[var(--line)] hover:border-white/20 text-[var(--muted)]'
                 }`}
               >
@@ -231,7 +223,7 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* Danger Zone: Reset Data */}
-        <div className="glass-panel p-6 border border-[var(--risk-red)]/30 space-y-4 bg-[var(--risk-red)]/[0.02]">
+        <div className="fintech-card p-6 border border-[var(--risk-red)]/30 space-y-4 bg-[var(--risk-red)]/[0.02]">
           <div className="flex items-center justify-between pb-3 border-b border-[var(--risk-red)]/20">
             <div className="flex items-center gap-2.5">
               <RotateCcw className="w-4 h-4 text-[var(--risk-red)]" />

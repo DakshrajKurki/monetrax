@@ -26,6 +26,7 @@ import {
 } from 'recharts';
 import { useAMLStore } from '../../store/useAMLStore';
 import { pageVariants } from '../common/MotionComponents';
+import { PageHeader } from '../common/PageHeader';
 import { ChartCard } from '../common/ChartCard';
 import { KPICard } from '../common/KPICard';
 
@@ -91,41 +92,31 @@ export const SystemHealthView: React.FC = () => {
       className="w-full flex flex-col gap-6 pb-16"
     >
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-light text-[var(--text)] tracking-tight">
-              System Infrastructure & Model Health
-            </h2>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--live)]/20 text-[var(--live)] font-mono font-medium border border-[var(--live)]/30 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--live)] animate-pulse" />
-              <span>All Systems Operational</span>
-            </span>
+      <PageHeader
+        title="System Infrastructure & Model Health"
+        subtitle="Real-time inference latency telemetry, Population Stability Index (PSI) feature drift monitoring, and distributed streaming pipeline."
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleLiveStream}
+              className={`pill-btn-secondary text-xs flex items-center gap-1.5 ${isLiveStreaming ? '' : 'border-[var(--risk-yellow)] text-[var(--risk-yellow)]'}`}
+            >
+              {isLiveStreaming ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+              <span>{isLiveStreaming ? 'Pause Ingestion' : 'Resume Ingestion'}</span>
+            </button>
+
+            <button
+              onClick={handleTriggerRetraining}
+              disabled={isRetraining}
+              className="pill-btn-primary text-xs flex items-center gap-1.5"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRetraining ? 'animate-spin' : ''}`} />
+              <span>{isRetraining ? 'Calibrating...' : 'Trigger Model Retrain'}</span>
+            </button>
           </div>
-          <p className="text-xs text-[var(--muted)] mt-1 font-light">
-            Real-time inference latency telemetry, Population Stability Index (PSI) feature drift monitoring, and distributed streaming pipeline.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={toggleLiveStream}
-            className={`pill-btn-secondary text-xs flex items-center gap-1.5 ${isLiveStreaming ? '' : 'border-[var(--risk-amber)] text-[var(--risk-amber)]'}`}
-          >
-            {isLiveStreaming ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-            <span>{isLiveStreaming ? 'Pause Ingestion' : 'Resume Ingestion'}</span>
-          </button>
-
-          <button
-            onClick={handleTriggerRetraining}
-            disabled={isRetraining}
-            className="pill-btn-primary text-xs flex items-center gap-1.5"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRetraining ? 'animate-spin' : ''}`} />
-            <span>{isRetraining ? 'Calibrating...' : 'Trigger Model Retrain'}</span>
-          </button>
-        </div>
-      </div>
+        }
+        showPeriodPicker={false}
+      />
 
       {/* KPI Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -197,7 +188,7 @@ export const SystemHealthView: React.FC = () => {
       </ChartCard>
 
       {/* Population Stability Index (PSI) Feature Drift Table */}
-      <div className="glass-panel overflow-hidden border border-[var(--line)]">
+      <div className="fintech-card overflow-hidden border border-[var(--line)]">
         <div className="p-4 border-b border-[var(--line)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h3 className="text-sm font-medium text-white">
@@ -208,8 +199,8 @@ export const SystemHealthView: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-3 text-[11px] font-mono">
-            <span className="text-[var(--live)]">PSI &lt; 0.10: Stable</span>
-            <span className="text-[var(--risk-amber)]">0.10–0.20: Moderate</span>
+            <span className="text-[var(--risk-green)]">PSI &lt; 0.10: Stable</span>
+            <span className="text-[var(--risk-yellow)]">0.10–0.20: Moderate</span>
             <span className="text-[var(--risk-red)]">&gt; 0.20: Severe</span>
           </div>
         </div>
@@ -231,13 +222,13 @@ export const SystemHealthView: React.FC = () => {
                   <td className="py-3 px-4 font-bold text-white">{item.feature}</td>
                   <td className="py-3 px-4 text-[var(--muted)] font-sans">{item.label}</td>
                   <td className="py-3 px-4">
-                    <span className={`font-bold ${item.psi >= 0.1 ? 'text-[var(--risk-amber)]' : 'text-[var(--live)]'}`}>
+                    <span className={`font-bold ${item.psi >= 0.1 ? 'text-[var(--risk-yellow)]' : 'text-[var(--risk-green)]'}`}>
                       {item.psi.toFixed(3)}
                     </span>
                   </td>
                   <td className="py-3 px-4">
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      item.psi >= 0.1 ? 'bg-[var(--risk-amber)]/20 text-[var(--risk-amber)]' : 'bg-[var(--live)]/20 text-[var(--live)]'
+                      item.psi >= 0.1 ? 'bg-[var(--risk-yellow)]/20 text-[var(--risk-yellow)]' : 'bg-[var(--risk-green)]/20 text-[var(--risk-green)]'
                     }`}>
                       {item.status.toUpperCase()}
                     </span>
@@ -253,7 +244,7 @@ export const SystemHealthView: React.FC = () => {
       </div>
 
       {/* Distributed Worker Nodes */}
-      <div className="glass-panel overflow-hidden border border-[var(--line)]">
+      <div className="fintech-card overflow-hidden border border-[var(--line)]">
         <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
           <div>
             <h3 className="text-sm font-medium text-white">
@@ -284,18 +275,18 @@ export const SystemHealthView: React.FC = () => {
               {workerNodes.map((w) => (
                 <tr key={w.id} className="hover:bg-white/[0.02]">
                   <td className="py-3 px-4 text-white font-medium flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[var(--live)]" />
+                    <span className="w-2 h-2 rounded-full bg-[var(--risk-green)]" />
                     <span>{w.id}</span>
                   </td>
                   <td className="py-3 px-4 text-[var(--muted)]">{w.region}</td>
                   <td className="py-3 px-4">
-                    <span className="px-2 py-0.5 rounded text-[10px] bg-[var(--live)]/20 text-[var(--live)] font-bold">
+                    <span className="px-2 py-0.5 rounded text-[10px] bg-[var(--risk-green)]/20 text-[var(--risk-green)] font-bold">
                       {w.status.toUpperCase()}
                     </span>
                   </td>
                   <td className="py-3 px-4 text-[var(--text)]">{w.cpu}</td>
                   <td className="py-3 px-4 text-[var(--muted)]">{w.mem}</td>
-                  <td className="py-3 px-4 text-right font-bold text-[var(--sage-3)]">{w.rate}</td>
+                  <td className="py-3 px-4 text-right font-bold text-[var(--brand-orange)]">{w.rate}</td>
                 </tr>
               ))}
             </tbody>

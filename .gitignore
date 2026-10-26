@@ -10,3 +10,4 @@ chrome-tmp
 .env
 .agent-artifacts/
 .env
+.vercel

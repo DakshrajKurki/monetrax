@@ -28,6 +28,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { CommandPalette } from '../common/CommandPalette';
+import { useOnClickOutside } from '../../hooks/useOnClickOutside';
 import { formatRelativeTime } from '../../utils/formatters';
 
 export const HeaderNav: React.FC = () => {
@@ -58,8 +59,10 @@ export const HeaderNav: React.FC = () => {
   // Trigger refs for position calculation
   const investigationBtnRef = useRef<HTMLButtonElement>(null);
   const profileBtnRef = useRef<HTMLButtonElement>(null);
+  const bellBtnRef = useRef<HTMLButtonElement>(null);
   const moreMenuDropdownRef = useRef<HTMLDivElement>(null);
   const profileDropdownRef = useRef<HTMLDivElement>(null);
+  const notificationsDropdownRef = useRef<HTMLDivElement>(null);
 
   const [investigationPos, setInvestigationPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [profilePos, setProfilePos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
@@ -85,49 +88,63 @@ export const HeaderNav: React.FC = () => {
     }
   }, [isProfileMenuOpen]);
 
-  // Global Cmd+K / Ctrl+K and Escape listeners
+  // Global Cmd+K / Ctrl+K listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setIsCmdPaletteOpen(prev => !prev);
-      }
-      if (e.key === 'Escape') {
-        setIsMoreMenuOpen(false);
-        setIsProfileMenuOpen(false);
-        setIsNotificationsOpen(false);
+        openCmdPalette();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Click outside listener for portaled dropdowns
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (
-        isMoreMenuOpen && 
-        moreMenuDropdownRef.current && 
-        !moreMenuDropdownRef.current.contains(target) &&
-        investigationBtnRef.current &&
-        !investigationBtnRef.current.contains(target)
-      ) {
-        setIsMoreMenuOpen(false);
-      }
-      if (
-        isProfileMenuOpen &&
-        profileDropdownRef.current &&
-        !profileDropdownRef.current.contains(target) &&
-        profileBtnRef.current &&
-        !profileBtnRef.current.contains(target)
-      ) {
-        setIsProfileMenuOpen(false);
-      }
-    };
-    window.addEventListener('mousedown', handleClickOutside);
-    return () => window.removeEventListener('mousedown', handleClickOutside);
-  }, [isMoreMenuOpen, isProfileMenuOpen]);
+  // Mutually exclusive toggle handlers
+  const toggleMoreMenu = () => {
+    setIsProfileMenuOpen(false);
+    setIsNotificationsOpen(false);
+    setIsMoreMenuOpen(prev => !prev);
+  };
+
+  const toggleProfileMenu = () => {
+    setIsMoreMenuOpen(false);
+    setIsNotificationsOpen(false);
+    setIsProfileMenuOpen(prev => !prev);
+  };
+
+  const toggleNotifications = () => {
+    setIsMoreMenuOpen(false);
+    setIsProfileMenuOpen(false);
+    setIsNotificationsOpen(prev => {
+      const next = !prev;
+      if (next && unreadAlertCount > 0) clearAlertNotifications();
+      return next;
+    });
+  };
+
+  const openCmdPalette = () => {
+    setIsMoreMenuOpen(false);
+    setIsProfileMenuOpen(false);
+    setIsNotificationsOpen(false);
+    setIsCmdPaletteOpen(true);
+  };
+
+  // Click-outside and Escape listeners for all header overlays
+  useOnClickOutside(moreMenuDropdownRef, () => setIsMoreMenuOpen(false), {
+    enabled: isMoreMenuOpen,
+    ignoreRefs: [investigationBtnRef]
+  });
+
+  useOnClickOutside(profileDropdownRef, () => setIsProfileMenuOpen(false), {
+    enabled: isProfileMenuOpen,
+    ignoreRefs: [profileBtnRef]
+  });
+
+  useOnClickOutside(notificationsDropdownRef, () => setIsNotificationsOpen(false), {
+    enabled: isNotificationsOpen,
+    ignoreRefs: [bellBtnRef]
+  });
 
   const navItems = [
     { path: '/', label: 'Command', icon: <Activity className="w-3.5 h-3.5" /> },
@@ -217,7 +234,7 @@ export const HeaderNav: React.FC = () => {
           {/* More Tools Trigger (Investigation) */}
           <button
             ref={investigationBtnRef}
-            onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
+            onClick={toggleMoreMenu}
             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors select-none flex items-center gap-1.5 ${
               moreTools.some(t => pathname === t.path) || isMoreMenuOpen
                 ? 'text-white font-medium bg-white/10' 
@@ -233,7 +250,7 @@ export const HeaderNav: React.FC = () => {
         <div className="flex items-center gap-2 sm:gap-3 pr-2">
           {/* Command Palette Trigger */}
           <button
-            onClick={() => setIsCmdPaletteOpen(true)}
+            onClick={openCmdPalette}
             className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs bg-white/[0.03] border border-[var(--line)] text-[var(--muted)] hover:text-white hover:border-white/30 transition-all font-mono text-[10px]"
             title="Open Command Palette (Cmd+K)"
           >
@@ -266,10 +283,8 @@ export const HeaderNav: React.FC = () => {
           {/* Notification Bell */}
           <div className="relative">
             <button
-              onClick={() => {
-                setIsNotificationsOpen(!isNotificationsOpen);
-                if (unreadAlertCount > 0) clearAlertNotifications();
-              }}
+              ref={bellBtnRef}
+              onClick={toggleNotifications}
               className="w-8 h-8 rounded-full bg-white/[0.03] border border-[var(--line)] flex items-center justify-center text-[var(--muted)] hover:text-white transition-all relative"
               title="Threat Stream"
             >
@@ -283,7 +298,10 @@ export const HeaderNav: React.FC = () => {
 
             {/* Notifications Dropdown */}
             {isNotificationsOpen && (
-              <div className="absolute right-0 mt-3 w-80 max-w-sm rounded-2xl glass-panel p-4 shadow-2xl border border-[var(--line)] z-50 animate-fadeIn bg-[#0B0F0D]/95">
+              <div 
+                ref={notificationsDropdownRef}
+                className="absolute right-0 mt-3 w-80 max-w-sm rounded-2xl glass-panel p-4 shadow-2xl border border-[var(--line)] z-50 animate-fadeIn bg-[#0B0F0D]/95"
+              >
                 <div className="flex items-center justify-between pb-2 border-b border-[var(--line)]">
                   <div className="flex items-center gap-1.5">
                     <ShieldAlert className="w-3.5 h-3.5 text-[var(--risk-red)]" />
@@ -353,7 +371,7 @@ export const HeaderNav: React.FC = () => {
             ref={profileBtnRef}
             onClick={(e) => {
               e.stopPropagation();
-              setIsProfileMenuOpen(!isProfileMenuOpen);
+              toggleProfileMenu();
             }}
             className="flex items-center gap-2 pl-1 select-none cursor-pointer group p-1 rounded-full hover:bg-white/[0.04] transition-all bg-transparent border-0"
             title="Dakshraj Singh Chandawat — AML Analyst"

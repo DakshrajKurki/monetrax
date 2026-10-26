@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -18,6 +18,10 @@ import {
   getMockBankBranches,
   createCircleGeoJSON,
   calculateHaversineDistance,
+  getGreatCirclePoints,
+  generateAccountChain,
+  AccountHop,
+  LiveTrackingStatus,
   NearbyAccount,
   BankBranch
 } from './types';
@@ -37,13 +41,39 @@ import {
   ShieldAlert,
   Info
 } from 'lucide-react';
+import { sanitizeTransactionCoordinates, resolveLocationCoordinates } from '../../utils/coordinateResolver';
 
 interface DiveMapContainerProps {
   transaction: Transaction;
   initialZoom?: number;
   onControllerReady?: (controller: UnifiedMapController) => void;
   isMapVisible?: boolean;
+  onTrackingUpdate?: (status: LiveTrackingStatus) => void;
 }
+
+// Fallback Free Tile Style (CartoDB / OpenStreetMap)
+const FALLBACK_FREE_STYLE = {
+  version: 8 as const,
+  sources: {
+    'carto-dark-fallback': {
+      type: 'raster' as const,
+      tiles: [
+        'https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{y}/{x}.png'
+      ],
+      tileSize: 256,
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }
+  },
+  layers: [
+    {
+      id: 'carto-dark-fallback-layer',
+      type: 'raster' as const,
+      source: 'carto-dark-fallback',
+      minzoom: 0,
+      maxzoom: 19
+    }
+  ]
+};
 
 // MapLibre Open Tile Styles
 const MAPLIBRE_STYLES = {
@@ -147,7 +177,8 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
   transaction,
   initialZoom = 15,
   onControllerReady,
-  isMapVisible = true
+  isMapVisible = true,
+  onTrackingUpdate
 }) => {
   const navigate = useNavigate();
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -171,17 +202,274 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
   const googleCircleRef = useRef<google.maps.Circle | null>(null);
   const googlePolylineRef = useRef<google.maps.Polyline | null>(null);
   const mapLibreMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const hopMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const hopChipsRef = useRef<HTMLElement[]>([]);
+  const cometAnimRef = useRef<number | null>(null);
+  const cometMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const lastHopIndexRef = useRef<number>(-1);
+  const lastStatusRef = useRef<string>('');
+
+  // Robust Sanitized Coordinates Guarantee
+  const safeTxn = useMemo(() => sanitizeTransactionCoordinates(transaction), [transaction]);
+  const [tileErrorOccurred, setTileErrorOccurred] = useState(false);
+  const [isUsingFallbackStyle, setIsUsingFallbackStyle] = useState(false);
 
   // Computed data
   const distance = calculateHaversineDistance(
-    transaction.fromLat,
-    transaction.fromLng,
-    transaction.toLat,
-    transaction.toLng
+    safeTxn.fromLat,
+    safeTxn.fromLng,
+    safeTxn.toLat,
+    safeTxn.toLng
   );
 
-  const nearbyAccounts = getMockNearbyAccounts(transaction.toLat, transaction.toLng, transaction.id);
-  const bankBranches = getMockBankBranches(transaction.toLat, transaction.toLng, transaction.toCity);
+  const nearbyAccounts = useMemo(() => 
+    getMockNearbyAccounts(safeTxn.toLat, safeTxn.toLng, safeTxn.id),
+    [safeTxn.id, safeTxn.toLat, safeTxn.toLng]
+  );
+  const bankBranches = useMemo(() => 
+    getMockBankBranches(safeTxn.toLat, safeTxn.toLng, safeTxn.toCity),
+    [safeTxn.id, safeTxn.toLat, safeTxn.toLng, safeTxn.toCity]
+  );
+
+  const onTrackingUpdateRef = useRef(onTrackingUpdate);
+  useEffect(() => {
+    onTrackingUpdateRef.current = onTrackingUpdate;
+  }, [onTrackingUpdate]);
+
+  // --------------------------------------------------------------------------
+  // MapLibre Tracking & Corridor Setup Helper
+  // --------------------------------------------------------------------------
+  const setupMapLibreTracking = useCallback((map: maplibregl.Map) => {
+    // 1. Cancel previous animation and cleanup previous hop markers
+    if (cometAnimRef.current) {
+      cancelAnimationFrame(cometAnimRef.current);
+      cometAnimRef.current = null;
+    }
+    if (cometMarkerRef.current) {
+      cometMarkerRef.current.remove();
+      cometMarkerRef.current = null;
+    }
+    hopMarkersRef.current.forEach(m => m.remove());
+    hopMarkersRef.current = [];
+    hopChipsRef.current = [];
+    lastHopIndexRef.current = -1;
+    lastStatusRef.current = '';
+
+    const { hops, corridorPoints } = generateAccountChain(safeTxn);
+    const totalPoints = corridorPoints.length;
+    if (totalPoints < 2) return;
+
+    const riskColor = safeTxn.riskScore >= 70 ? '#FF6B6B' : '#FFAE42';
+
+    // 2. Add / update 500m activity perimeter circle
+    const circleGeoJSON = createCircleGeoJSON(safeTxn.toLat, safeTxn.toLng, 500);
+    if (!map.getSource('activity-circle')) {
+      map.addSource('activity-circle', { type: 'geojson', data: circleGeoJSON });
+      map.addLayer({
+        id: 'activity-circle-fill',
+        type: 'fill',
+        source: 'activity-circle',
+        paint: { 'fill-color': '#E5484D', 'fill-opacity': 0.16 }
+      });
+      map.addLayer({
+        id: 'activity-circle-stroke',
+        type: 'line',
+        source: 'activity-circle',
+        paint: { 'line-color': '#E5484D', 'line-width': 2, 'line-dasharray': [3, 2], 'line-opacity': 0.85 }
+      });
+    } else {
+      (map.getSource('activity-circle') as maplibregl.GeoJSONSource).setData(circleGeoJSON);
+    }
+
+    // 3. Add / update full multi-hop corridor polyline
+    const corridorGeoJSON: GeoJSON.Feature<GeoJSON.LineString> = {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: corridorPoints }
+    };
+    if (!map.getSource('corridor-line')) {
+      map.addSource('corridor-line', { type: 'geojson', data: corridorGeoJSON });
+      map.addLayer({
+        id: 'corridor-line-path',
+        type: 'line',
+        source: 'corridor-line',
+        paint: { 'line-color': '#C4D2C8', 'line-width': 2.5, 'line-dasharray': [4, 4], 'line-opacity': 0.75 }
+      });
+    } else {
+      (map.getSource('corridor-line') as maplibregl.GeoJSONSource).setData(corridorGeoJSON);
+    }
+
+    // 4. Add / update dynamic comet trail source and layers (fading trail of pooled points)
+    const trailGeoJSON: GeoJSON.Feature<GeoJSON.LineString> = {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: [] }
+    };
+    if (!map.getSource('comet-trail-source')) {
+      map.addSource('comet-trail-source', { type: 'geojson', data: trailGeoJSON });
+      map.addLayer({
+        id: 'comet-trail-glow',
+        type: 'line',
+        source: 'comet-trail-source',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': riskColor, 'line-width': 6, 'line-opacity': 0.85, 'line-blur': 3 }
+      });
+      map.addLayer({
+        id: 'comet-trail-core',
+        type: 'line',
+        source: 'comet-trail-source',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#FFFFFF', 'line-width': 2, 'line-opacity': 0.95 }
+      });
+    } else {
+      (map.getSource('comet-trail-source') as maplibregl.GeoJSONSource).setData(trailGeoJSON);
+    }
+
+    // 5. Create markers and animated fading label chips for every hop in the chain
+    hops.forEach((hop, idx) => {
+      const isOrigin = hop.role === 'origin';
+      const isDest = hop.role === 'destination';
+      const hopColor = isDest ? '#E5484D' : isOrigin ? '#E8A33D' : '#7F9488';
+
+      const hopEl = document.createElement('div');
+      hopEl.className = 'monetrax-hop-pin cursor-pointer relative flex flex-col items-center';
+      hopEl.innerHTML = `
+        <div class="relative flex items-center justify-center">
+          ${isDest ? '<span class="absolute w-8 h-8 rounded-full bg-red-500/30 animate-ping"></span>' : ''}
+          ${isOrigin ? '<span class="absolute w-6 h-6 rounded-full bg-amber-500/30 animate-pulse"></span>' : ''}
+          <span class="relative w-3.5 h-3.5 rounded-full border-2 border-white shadow-lg" style="background: ${hopColor};"></span>
+        </div>
+        <div class="hop-chip absolute -top-8 px-2 py-0.5 rounded-full bg-[#0B0F0D]/95 border border-white/10 text-[9px] font-mono text-white shadow-xl flex items-center gap-1.5 whitespace-nowrap pointer-events-none backdrop-blur-md transition-all duration-300" style="opacity: ${idx === 0 ? '1' : '0.35'};">
+          <span class="w-1.5 h-1.5 rounded-full" style="background: ${hopColor};"></span>
+          <span class="font-medium text-white">${hop.account}</span>
+          <span class="text-[var(--muted)]">• ${hop.city}</span>
+        </div>
+      `;
+
+      const chipEl = hopEl.querySelector('.hop-chip') as HTMLElement;
+      if (chipEl) hopChipsRef.current.push(chipEl);
+
+      const marker = new maplibregl.Marker({ element: hopEl })
+        .setLngLat([hop.lng, hop.lat])
+        .addTo(map);
+
+      hopMarkersRef.current.push(marker);
+      mapLibreMarkersRef.current.push(marker);
+    });
+
+    // 6. Create Traveling Glowing Comet Dot Marker
+    const cometDotEl = document.createElement('div');
+    cometDotEl.className = 'monetrax-comet-dot pointer-events-none';
+    cometDotEl.innerHTML = `
+      <div class="relative flex items-center justify-center">
+        <span class="absolute w-8 h-8 rounded-full animate-ping opacity-60" style="background: ${riskColor};"></span>
+        <span class="absolute w-6 h-6 rounded-full blur-[3px]" style="background: ${riskColor}; opacity: 0.85;"></span>
+        <span class="relative w-3.5 h-3.5 rounded-full border border-white" style="background: ${riskColor}; box-shadow: 0 0 14px ${riskColor};"></span>
+      </div>
+    `;
+    const cometMarker = new maplibregl.Marker({ element: cometDotEl })
+      .setLngLat(corridorPoints[0])
+      .addTo(map);
+    cometMarkerRef.current = cometMarker;
+
+    // 7. Continuous Looping Animation Frame Loop
+    const loopDuration = 4200; // 4.2 seconds travel
+    const dwellAtEnd = 600;   // 600ms pause at destination before restart
+    const cycleTotal = loopDuration + dwellAtEnd;
+    let cycleStartTime = performance.now();
+
+    const stepTracking = (now: number) => {
+      const elapsed = now - cycleStartTime;
+      const progressRaw = Math.min(1.0, (elapsed % cycleTotal) / loopDuration);
+      
+      // Smooth cubic ease-in-out
+      const t = progressRaw < 0.5 
+        ? 4 * progressRaw * progressRaw * progressRaw 
+        : 1 - Math.pow(-2 * progressRaw + 2, 3) / 2;
+
+      const currentIdxFloat = t * (totalPoints - 1);
+      const idxLow = Math.floor(currentIdxFloat);
+      const idxHigh = Math.min(totalPoints - 1, Math.ceil(currentIdxFloat));
+      const frac = currentIdxFloat - idxLow;
+
+      const pLow = corridorPoints[idxLow];
+      const pHigh = corridorPoints[idxHigh];
+      const curLng = pLow[0] + (pHigh[0] - pLow[0]) * frac;
+      const curLat = pLow[1] + (pHigh[1] - pLow[1]) * frac;
+
+      cometMarker.setLngLat([curLng, curLat]);
+
+      // Fading trail of ~10 pooled points
+      const trailLength = 10;
+      const startIdx = Math.max(0, idxLow - trailLength);
+      const trailCoords = corridorPoints.slice(startIdx, idxLow + 1);
+      trailCoords.push([curLng, curLat]);
+
+      const trailSource = map.getSource('comet-trail-source') as maplibregl.GeoJSONSource;
+      if (trailSource) {
+        trailSource.setData({
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'LineString', coordinates: trailCoords }
+        });
+      }
+
+      // Determine active hop
+      let activeHopIdx = 0;
+      for (let i = 0; i < hops.length; i++) {
+        if (progressRaw >= hops[i].progressFraction - 0.03) {
+          activeHopIdx = i;
+        }
+      }
+
+      // Fade in hop label chips as the dot passes them
+      for (let i = 0; i < hopChipsRef.current.length; i++) {
+        const chip = hopChipsRef.current[i];
+        if (!chip) continue;
+        if (i <= activeHopIdx) {
+          chip.style.opacity = '1';
+          chip.style.borderColor = i === hops.length - 1 ? '#E5484D' : i === 0 ? '#E8A33D' : '#7F9488';
+          chip.style.boxShadow = '0 0 14px rgba(127,148,136,0.25)';
+        } else {
+          chip.style.opacity = '0.35';
+          chip.style.borderColor = 'rgba(255,255,255,0.1)';
+          chip.style.boxShadow = 'none';
+        }
+      }
+
+      // Determine tracking status
+      let currentStatus: 'In Transit' | 'Layered' | 'Reached Destination' = 'In Transit';
+      if (progressRaw >= 0.98) {
+        currentStatus = 'Reached Destination';
+      } else if (activeHopIdx > 0 && activeHopIdx < hops.length - 1) {
+        currentStatus = 'Layered';
+      } else {
+        currentStatus = 'In Transit';
+      }
+
+      // Fire callback only on hop index or status change (zero re-render per frame)
+      if (lastHopIndexRef.current !== activeHopIdx || lastStatusRef.current !== currentStatus) {
+        lastHopIndexRef.current = activeHopIdx;
+        lastStatusRef.current = currentStatus;
+        onTrackingUpdateRef.current?.({
+          currentHopIndex: activeHopIdx,
+          status: currentStatus,
+          activeHop: hops[activeHopIdx],
+          nextHop: hops[activeHopIdx + 1],
+          chain: hops
+        });
+      }
+
+      // Loop cycle reset
+      if (elapsed >= cycleTotal) {
+        cycleStartTime = now;
+      }
+
+      cometAnimRef.current = requestAnimationFrame(stepTracking);
+    };
+
+    cometAnimRef.current = requestAnimationFrame(stepTracking);
+  }, [safeTxn]);
 
   // --------------------------------------------------------------------------
   // MapLibre GL Initializer
@@ -196,10 +484,11 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
     }
 
     try {
+      const activeStyle = isUsingFallbackStyle ? FALLBACK_FREE_STYLE : MAPLIBRE_STYLES[currentStyle];
       const map = new maplibregl.Map({
         container: mapContainerRef.current,
-        style: MAPLIBRE_STYLES[currentStyle] as any,
-        center: [transaction.toLng, transaction.toLat],
+        style: activeStyle as any,
+        center: [safeTxn.toLng, safeTxn.toLat],
         zoom: initialZoom,
         pitch: 35,
         bearing: -15,
@@ -207,104 +496,31 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
         attributionControl: false
       });
 
+      // Tile error and map error safety net
+      map.on('error', (e) => {
+        if (e && !isUsingFallbackStyle) {
+          console.warn('MapLibre error or tile load failure, activating fallback style:', e);
+          setTileErrorOccurred(true);
+          setIsUsingFallbackStyle(true);
+          try {
+            map.setStyle(FALLBACK_FREE_STYLE as any);
+            map.once('style.load', () => {
+              setupMapLibreTracking(map);
+            });
+          } catch (fbErr) {
+            console.warn('Fallback style failed:', fbErr);
+          }
+        }
+      });
+
       mapLibreInstanceRef.current = map;
       setProvider('maplibre');
 
-      map.on('load', () => {
+      const onMapReady = () => {
         map.resize();
-        // 1. Add 500m activity perimeter circle
-        const circleGeoJSON = createCircleGeoJSON(transaction.toLat, transaction.toLng, 500);
-        map.addSource('activity-circle', {
-          type: 'geojson',
-          data: circleGeoJSON
-        });
+        setupMapLibreTracking(map);
 
-        map.addLayer({
-          id: 'activity-circle-fill',
-          type: 'fill',
-          source: 'activity-circle',
-          paint: {
-            'fill-color': '#E5484D',
-            'fill-opacity': 0.16
-          }
-        });
-
-        map.addLayer({
-          id: 'activity-circle-stroke',
-          type: 'line',
-          source: 'activity-circle',
-          paint: {
-            'line-color': '#E5484D',
-            'line-width': 2,
-            'line-dasharray': [3, 2],
-            'line-opacity': 0.85
-          }
-        });
-
-        // 2. Add origin -> destination flight corridor polyline
-        map.addSource('corridor-line', {
-          type: 'geojson',
-          data: {
-            type: 'Feature',
-            properties: {},
-            geometry: {
-              type: 'LineString',
-              coordinates: [
-                [transaction.fromLng, transaction.fromLat],
-                [transaction.toLng, transaction.toLat]
-              ]
-            }
-          }
-        });
-
-        map.addLayer({
-          id: 'corridor-line-path',
-          type: 'line',
-          source: 'corridor-line',
-          paint: {
-            'line-color': '#C4D2C8',
-            'line-width': 2.5,
-            'line-dasharray': [4, 4],
-            'line-opacity': 0.75
-          }
-        });
-
-        // 3. Add Custom Destination Marker (Pulsed Pin)
-        const destEl = document.createElement('div');
-        destEl.className = 'monetrax-dest-pin cursor-pointer';
-        destEl.innerHTML = `
-          <div class="relative flex items-center justify-center">
-            <span class="absolute w-8 h-8 rounded-full bg-red-500/30 animate-ping"></span>
-            <span class="absolute w-5 h-5 rounded-full bg-red-500/50"></span>
-            <span class="relative w-3.5 h-3.5 rounded-full bg-[#E5484D] border-2 border-white shadow-lg"></span>
-            <div class="absolute -top-8 px-2.5 py-0.5 rounded-full bg-[#0B0F0D]/90 border border-white/20 text-[10px] font-mono font-medium text-white shadow-xl whitespace-nowrap pointer-events-none backdrop-blur-md">
-              Case #${transaction.id} • $${transaction.amount.toLocaleString()}
-            </div>
-          </div>
-        `;
-        const destMarker = new maplibregl.Marker({ element: destEl })
-          .setLngLat([transaction.toLng, transaction.toLat])
-          .addTo(map);
-        mapLibreMarkersRef.current.push(destMarker);
-
-        // 4. Add Custom Origin Marker
-        const origEl = document.createElement('div');
-        origEl.className = 'monetrax-orig-pin cursor-pointer';
-        origEl.innerHTML = `
-          <div class="relative flex items-center justify-center">
-            <span class="absolute w-4 h-4 rounded-full bg-amber-500/40 animate-pulse"></span>
-            <span class="relative w-3 h-3 rounded-full bg-[#E8A33D] border border-white shadow"></span>
-            <div class="absolute -top-7 px-2 py-0.5 rounded-full bg-[#0B0F0D]/90 border border-amber-500/30 text-[9px] font-mono text-[var(--sage-3)] whitespace-nowrap pointer-events-none backdrop-blur-md">
-              ORIGIN: ${transaction.fromCity}
-            </div>
-          </div>
-        `;
-        const origMarker = new maplibregl.Marker({ element: origEl })
-          .setLngLat([transaction.fromLng, transaction.fromLat])
-          .addTo(map);
-        mapLibreMarkersRef.current.push(origMarker);
-
-        // 5. Add Nearby Accounts markers
+        // Add Nearby Accounts markers
         nearbyAccounts.forEach((acc) => {
           const accEl = document.createElement('div');
           accEl.className = 'nearby-acc-marker cursor-pointer group';
@@ -325,7 +541,7 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
           mapLibreMarkersRef.current.push(m);
         });
 
-        // 6. Add Bank Branch markers
+        // Add Bank Branch markers
         bankBranches.forEach((b) => {
           const bEl = document.createElement('div');
           bEl.className = 'bank-branch-marker cursor-pointer group';
@@ -345,7 +561,13 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
             .addTo(map);
           mapLibreMarkersRef.current.push(m);
         });
-      });
+      };
+
+      if (map.loaded()) {
+        onMapReady();
+      } else {
+        map.once('load', onMapReady);
+      }
 
       // Pass controller to parent if requested
       if (onControllerReady) {
@@ -364,6 +586,9 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
           setStyle: (st) => {
             setCurrentStyle(st);
             map.setStyle(MAPLIBRE_STYLES[st] as any);
+            map.once('style.load', () => {
+              setupMapLibreTracking(map);
+            });
           },
           setLayersVisible: (lyrs) => {
             setLayers(lyrs);
@@ -376,7 +601,7 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
     } catch (err) {
       console.warn('MapLibre init error:', err);
     }
-  }, [currentStyle, initialZoom, onControllerReady, transaction, nearbyAccounts, bankBranches]);
+  }, [currentStyle, initialZoom, isUsingFallbackStyle, onControllerReady, setupMapLibreTracking, safeTxn, nearbyAccounts, bankBranches]);
 
   // --------------------------------------------------------------------------
   // Google Maps JS API Initializer (Attempts Google First, Falls back cleanly)
@@ -399,7 +624,7 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
       if (!mapContainerRef.current) return;
 
       const map = new Map(mapContainerRef.current, {
-        center: { lat: transaction.toLat, lng: transaction.toLng },
+        center: { lat: safeTxn.toLat, lng: safeTxn.toLng },
         zoom: initialZoom,
         mapId: import.meta.env.VITE_GOOGLE_MAP_ID || 'monetrax_dark_vector',
         gestureHandling: 'cooperative',
@@ -418,15 +643,15 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
         fillColor: '#E5484D',
         fillOpacity: 0.16,
         map,
-        center: { lat: transaction.toLat, lng: transaction.toLng },
+        center: { lat: safeTxn.toLat, lng: safeTxn.toLng },
         radius: 500
       });
 
       // Add Polyline
       googlePolylineRef.current = new google.maps.Polyline({
         path: [
-          { lat: transaction.fromLat, lng: transaction.fromLng },
-          { lat: transaction.toLat, lng: transaction.toLng }
+          { lat: safeTxn.fromLat, lng: safeTxn.fromLng },
+          { lat: safeTxn.toLat, lng: safeTxn.toLng }
         ],
         geodesic: true,
         strokeColor: '#C4D2C8',
@@ -445,22 +670,22 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
             <span class="absolute w-8 h-8 rounded-full bg-red-500/30 animate-ping"></span>
             <span class="relative w-4 h-4 rounded-full bg-[#E5484D] border-2 border-white shadow-xl"></span>
             <div class="absolute -top-7 px-2.5 py-0.5 rounded-full bg-[#0B0F0D]/90 border border-white/20 text-[10px] font-mono text-white shadow-xl whitespace-nowrap backdrop-blur-md">
-              Case #${transaction.id}
+              Case #${safeTxn.id}
             </div>
           </div>
         `;
         const marker = new AdvancedMarkerElement({
           map,
-          position: { lat: transaction.toLat, lng: transaction.toLng },
-          title: `Case #${transaction.id}`,
+          position: { lat: safeTxn.toLat, lng: safeTxn.toLng },
+          title: `Case #${safeTxn.id}`,
           content: pinContent
         });
         googleMarkersRef.current.push(marker);
       } catch (markerErr) {
         const marker = new google.maps.Marker({
-          position: { lat: transaction.toLat, lng: transaction.toLng },
+          position: { lat: safeTxn.toLat, lng: safeTxn.toLng },
           map,
-          title: `Case #${transaction.id}`
+          title: `Case #${safeTxn.id}`
         });
         googleMarkersRef.current.push(marker);
       }
@@ -496,19 +721,32 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
       console.warn('Google Maps JS API load failed, switching to MapLibre GL fallback:', err);
       initMapLibre();
     }
-  }, [initialZoom, onControllerReady, transaction, initMapLibre]);
+  }, [initialZoom, onControllerReady, safeTxn, initMapLibre]);
 
   // Initialize on mount
   useEffect(() => {
     initGoogleMaps();
 
     return () => {
+      if (cometAnimRef.current) {
+        cancelAnimationFrame(cometAnimRef.current);
+        cometAnimRef.current = null;
+      }
+      if (cometMarkerRef.current) {
+        cometMarkerRef.current.remove();
+        cometMarkerRef.current = null;
+      }
+      hopMarkersRef.current.forEach(m => m.remove());
+      hopMarkersRef.current = [];
+      hopChipsRef.current = [];
+      mapLibreMarkersRef.current.forEach(m => m.remove());
+      mapLibreMarkersRef.current = [];
       if (mapLibreInstanceRef.current) {
         mapLibreInstanceRef.current.remove();
         mapLibreInstanceRef.current = null;
       }
     };
-  }, [initGoogleMaps]);
+  }, [safeTxn.id]);
 
   // Ensure map canvas properly calculates size when becoming visible
   useEffect(() => {
@@ -529,28 +767,27 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
     if (provider === 'maplibre' && mapLibreInstanceRef.current) {
       const map = mapLibreInstanceRef.current;
       if (focus === 'destination') {
-        map.flyTo({ center: [transaction.toLng, transaction.toLat], zoom: 15, duration: 1200 });
+        map.flyTo({ center: [safeTxn.toLng, safeTxn.toLat], zoom: 15, duration: 1200 });
       } else if (focus === 'origin') {
-        map.flyTo({ center: [transaction.fromLng, transaction.fromLat], zoom: 14, duration: 1200 });
+        map.flyTo({ center: [safeTxn.fromLng, safeTxn.fromLat], zoom: 14, duration: 1200 });
       } else if (focus === 'both') {
-        const minLng = Math.min(transaction.fromLng, transaction.toLng);
-        const minLat = Math.min(transaction.fromLat, transaction.toLat);
-        const maxLng = Math.max(transaction.fromLng, transaction.toLng);
-        const maxLat = Math.max(transaction.fromLat, transaction.toLat);
-        map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 90, duration: 1200 });
+        const { hops } = generateAccountChain(safeTxn);
+        const bounds = new maplibregl.LngLatBounds();
+        hops.forEach(h => bounds.extend([h.lng, h.lat]));
+        map.fitBounds(bounds, { padding: 90, duration: 1200 });
       }
     } else if (provider === 'google' && googleMapInstanceRef.current) {
       const map = googleMapInstanceRef.current;
       if (focus === 'destination') {
-        map.panTo({ lat: transaction.toLat, lng: transaction.toLng });
+        map.panTo({ lat: safeTxn.toLat, lng: safeTxn.toLng });
         map.setZoom(15);
       } else if (focus === 'origin') {
-        map.panTo({ lat: transaction.fromLat, lng: transaction.fromLng });
+        map.panTo({ lat: safeTxn.fromLat, lng: safeTxn.fromLng });
         map.setZoom(14);
       } else if (focus === 'both') {
         const bounds = new google.maps.LatLngBounds();
-        bounds.extend({ lat: transaction.fromLat, lng: transaction.fromLng });
-        bounds.extend({ lat: transaction.toLat, lng: transaction.toLng });
+        bounds.extend({ lat: safeTxn.fromLat, lng: safeTxn.fromLng });
+        bounds.extend({ lat: safeTxn.toLat, lng: safeTxn.toLng });
         map.fitBounds(bounds, 80);
       }
     }
@@ -560,7 +797,11 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
   const handleStyleChange = (style: MapStyle) => {
     setCurrentStyle(style);
     if (provider === 'maplibre' && mapLibreInstanceRef.current) {
-      mapLibreInstanceRef.current.setStyle(MAPLIBRE_STYLES[style] as any);
+      const map = mapLibreInstanceRef.current;
+      map.setStyle(MAPLIBRE_STYLES[style] as any);
+      map.once('style.load', () => {
+        setupMapLibreTracking(map);
+      });
     } else if (provider === 'google' && googleMapInstanceRef.current) {
       if (style === 'satellite') googleMapInstanceRef.current.setMapTypeId('satellite');
       else if (style === 'hybrid') googleMapInstanceRef.current.setMapTypeId('hybrid');
@@ -633,12 +874,18 @@ export const DiveMapContainer: React.FC<DiveMapContainerProps> = ({
           {/* Corridor Distance */}
           <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#0B0F0D]/90 border border-[var(--line)] text-[10px] font-mono text-[var(--sage-3)] shadow-md backdrop-blur-md">
             <Compass className="w-3 h-3 text-[var(--sage-2)]" />
-            <span>{transaction.fromCity} ➔ {transaction.toCity} ({distance.km.toLocaleString()} km / {distance.miles.toLocaleString()} mi)</span>
+            <span>{safeTxn.fromCity} ➔ {safeTxn.toCity} ({distance.km.toLocaleString()} km / {distance.miles.toLocaleString()} mi)</span>
           </div>
         </div>
 
         {/* Right: Layer Toggles (Nearby Accounts, Branches) */}
         <div className="flex items-center gap-1.5 pointer-events-auto bg-[#0B0F0D]/90 p-1 rounded-full border border-[var(--line)] shadow-lg backdrop-blur-md">
+          {tileErrorOccurred && (
+            <div className="px-2.5 py-1 rounded-full bg-amber-950/80 border border-amber-500/50 text-amber-300 text-[10px] font-mono flex items-center gap-1 shadow-md mr-1">
+              <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+              <span>Map tiles unavailable, retrying</span>
+            </div>
+          )}
           <button
             onClick={() => setLayers(l => ({ ...l, nearbyAccounts: !l.nearbyAccounts }))}
             className={`px-2.5 py-1 rounded-full text-[10px] font-mono flex items-center gap-1 transition-all ${

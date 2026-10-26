@@ -330,11 +330,11 @@ export const NetworkGraphView: React.FC = () => {
       {/* =========================================================================
           TYPOLOGY REPLAY TIMELINE CONTROLLER
           ========================================================================= */}
-      <div className="glass-panel p-4 border border-[var(--line)] flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="fintech-card p-4 border border-white/[0.08] flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setIsPlaying(!isPlaying)}
-            className="w-10 h-10 rounded-full bg-white text-[#0A0D0C] flex items-center justify-center hover:scale-105 transition-all shadow-md"
+            className="w-10 h-10 rounded-full bg-gradient-to-r from-[#FF6A2B] to-[#FF4D1A] text-white flex items-center justify-center hover:scale-105 transition-all shadow-[0_4px_18px_rgba(255,106,43,0.38)]"
             title={isPlaying ? 'Pause replay' : 'Play automated replay'}
           >
             {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
@@ -343,7 +343,7 @@ export const NetworkGraphView: React.FC = () => {
           <button
             onClick={() => setReplayStep(Math.max(0, replayStep - 1))}
             disabled={replayStep === 0}
-            className="p-2 rounded-full glass-panel hover:text-white text-[var(--muted)] disabled:opacity-40"
+            className="p-2 rounded-full fintech-card hover:text-white text-[var(--muted)] disabled:opacity-40"
             title="Previous step"
           >
             <SkipBack className="w-4 h-4" />
@@ -352,7 +352,7 @@ export const NetworkGraphView: React.FC = () => {
           <button
             onClick={() => setReplayStep(Math.min(replaySteps.length - 1, replayStep + 1))}
             disabled={replayStep === replaySteps.length - 1}
-            className="p-2 rounded-full glass-panel hover:text-white text-[var(--muted)] disabled:opacity-40"
+            className="p-2 rounded-full fintech-card hover:text-white text-[var(--muted)] disabled:opacity-40"
             title="Next step"
           >
             <SkipForward className="w-4 h-4" />
@@ -360,14 +360,14 @@ export const NetworkGraphView: React.FC = () => {
 
           <button
             onClick={() => { setReplayStep(0); setIsPlaying(false); }}
-            className="p-2 rounded-full glass-panel hover:text-white text-[var(--muted)]"
+            className="p-2 rounded-full fintech-card hover:text-white text-[var(--muted)]"
             title="Reset timeline"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
 
           <div className="ml-2">
-            <span className="text-xs font-mono font-medium text-white">
+            <span className="text-xs font-mono font-semibold text-white">
               {currentReplay.title}
             </span>
             <p className="text-[11px] text-[var(--muted)] max-w-xl truncate">
@@ -378,7 +378,7 @@ export const NetworkGraphView: React.FC = () => {
 
         {/* Timeline Scrubber */}
         <div className="flex items-center gap-3 min-w-[220px]">
-          <span className="text-[11px] font-mono text-[var(--muted)]">
+          <span className="text-[11px] font-mono text-[var(--caption)]">
             Step {replayStep + 1} / {replaySteps.length}
           </span>
           <input
@@ -388,15 +388,15 @@ export const NetworkGraphView: React.FC = () => {
             step="1"
             value={replayStep}
             onChange={(e) => setReplayStep(Number(e.target.value))}
-            className="w-full accent-white h-1.5 bg-white/10 rounded-lg cursor-pointer"
+            className="w-full accent-[#FF6A2B] h-1.5 bg-white/10 rounded-lg cursor-pointer"
           />
         </div>
       </div>
 
       {/* =========================================================================
-          BOUNDED GRAPH STAGE CONTAINER (Doesn't Swallow Wheel Scrolling)
+          BOUNDED GRAPH STAGE CONTAINER (Fills content area)
           ========================================================================= */}
-      <div className="relative w-full h-[500px] rounded-[24px] glass-panel overflow-hidden border border-[var(--line)]">
+      <div className="relative w-full h-[calc(100vh-220px)] min-h-[580px] rounded-[16px] fintech-card overflow-hidden border border-white/[0.08]">
         {/* Ambient sage glow behind graph */}
         <div className="sage-glow-1 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-30 pointer-events-none" />
 

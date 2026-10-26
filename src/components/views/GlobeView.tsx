@@ -24,12 +24,24 @@ import { Transaction } from '../../types';
 import { pageVariants } from '../common/MotionComponents';
 import { COUNTRIES } from '../../data/mockSeed';
 import { DiveMapContainer } from '../map/DiveMapContainer';
-import { UnifiedMapController, calculateHaversineDistance } from '../map/types';
+import { 
+  UnifiedMapController, 
+  calculateHaversineDistance,
+  generateAccountChain,
+  LiveTrackingStatus,
+  AccountHop
+} from '../map/types';
+import { useOnClickOutside } from '../../hooks/useOnClickOutside';
+import { 
+  sanitizeTransactionCoordinates, 
+  resolveLocationCoordinates 
+} from '../../utils/coordinateResolver';
 
-// Convert Lat/Lng to 3D Sphere coordinates
-export function latLngToVector3(lat: number, lng: number, radius = 2.0): THREE.Vector3 {
-  const phi = (90 - lat) * (Math.PI / 180);
-  const theta = (lng + 180) * (Math.PI / 180);
+// Convert Lat/Lng to 3D Sphere coordinates with guaranteed valid numbers
+export function latLngToVector3(lat?: number, lng?: number, radius = 2.0): THREE.Vector3 {
+  const safe = resolveLocationCoordinates(undefined, undefined, lat, lng);
+  const phi = (90 - safe.lat) * (Math.PI / 180);
+  const theta = (safe.lng + 180) * (Math.PI / 180);
   const x = -(radius * Math.sin(phi) * Math.cos(theta));
   const z = radius * Math.sin(phi) * Math.sin(theta);
   const y = radius * Math.cos(phi);
@@ -71,20 +83,34 @@ function EarthSphere({ isRotating }: { isRotating: boolean }) {
   );
 }
 
-// Animated Bezier Arc between Origin and Destination
-function TransactionArc({ 
+// Pre-allocated temporary vectors to prevent garbage collection pauses during animation frames
+const _tempVec = new THREE.Vector3();
+const _cameraDesiredPos = new THREE.Vector3();
+const _cameraLookAtPos = new THREE.Vector3();
+const TRAIL_POOL_SIZE = 10; // Fixed small number of trailing points (8-12)
+
+interface TransactionArcProps {
+  fromPos: THREE.Vector3;
+  toPos: THREE.Vector3;
+  color?: string;
+  isHighlighted?: boolean;
+  isFlyingTo?: boolean;
+}
+
+// Animated Bezier Arc between Origin and Destination with Pooled Traveling Comet Trail
+const TransactionArc: React.FC<TransactionArcProps> = React.memo(({ 
   fromPos, 
   toPos, 
-  color = '#E5484D', 
-  isHighlighted = false
-}: { 
-  fromPos: THREE.Vector3; 
-  toPos: THREE.Vector3; 
-  color?: string; 
-  isHighlighted?: boolean;
-}) {
+  color = '#FF6B6B', 
+  isHighlighted = false,
+  isFlyingTo = false
+}) => {
   const particleRef = useRef<THREE.Mesh>(null);
+  const trailRefs = useRef<(THREE.Mesh | null)[]>([]);
+  const flyStartRef = useRef<number | null>(null);
+  const flightCompleteRef = useRef<boolean>(false);
 
+  // Compute curve once for given fromPos & toPos
   const curve = useMemo(() => {
     const mid = new THREE.Vector3().addVectors(fromPos, toPos).multiplyScalar(0.5);
     const distance = fromPos.distanceTo(toPos);
@@ -92,13 +118,102 @@ function TransactionArc({
     return new THREE.QuadraticBezierCurve3(fromPos, mid, toPos);
   }, [fromPos, toPos]);
 
-  const points = useMemo(() => curve.getPoints(30), [curve]);
+  // Pre-calculate line points once
+  const points = useMemo(() => curve.getPoints(36), [curve]);
+
+  // Reusable geometries created once
+  const headGeom = useMemo(() => new THREE.SphereGeometry(isHighlighted ? 0.042 : 0.022, 12, 12), [isHighlighted]);
+  const trailGeom = useMemo(() => new THREE.SphereGeometry(0.028, 8, 8), []);
+
+  // Pre-allocated material pool with decaying opacity for trail
+  const trailMaterials = useMemo(() => {
+    const c = new THREE.Color(color);
+    return Array.from({ length: TRAIL_POOL_SIZE }, (_, i) => {
+      const falloff = 1 - (i + 1) / (TRAIL_POOL_SIZE + 1);
+      return new THREE.MeshBasicMaterial({
+        color: c,
+        transparent: true,
+        opacity: Math.max(0.08, 0.75 * falloff),
+        depthWrite: false
+      });
+    });
+  }, [color]);
+
+  // Clean disposal of geometries and materials on unmount
+  useEffect(() => {
+    return () => {
+      headGeom.dispose();
+      trailGeom.dispose();
+      trailMaterials.forEach(m => m.dispose());
+    };
+  }, [headGeom, trailGeom, trailMaterials]);
+
+  useEffect(() => {
+    if (isFlyingTo) {
+      flyStartRef.current = null;
+      flightCompleteRef.current = false;
+      trailRefs.current.forEach((m) => {
+        if (m) m.visible = true;
+      });
+    } else {
+      flightCompleteRef.current = false;
+      if (!isHighlighted) {
+        trailRefs.current.forEach((m) => {
+          if (m) m.visible = false;
+        });
+      }
+    }
+  }, [isFlyingTo, isHighlighted]);
 
   useFrame(({ clock }) => {
-    if (particleRef.current) {
-      const t = (clock.getElapsedTime() * 0.4) % 1.0;
-      const pos = curve.getPoint(t);
-      particleRef.current.position.copy(pos);
+    if (!particleRef.current) return;
+
+    let t = 0;
+    if (isFlyingTo) {
+      if (flightCompleteRef.current) return;
+
+      if (flyStartRef.current === null) {
+        flyStartRef.current = clock.getElapsedTime();
+      }
+      const elapsed = clock.getElapsedTime() - flyStartRef.current;
+      const rawT = Math.min(1.0, elapsed / 1.8);
+      // easeInOutCubic
+      t = rawT < 0.5 
+        ? 4 * rawT * rawT * rawT 
+        : 1 - Math.pow(-2 * rawT + 2, 3) / 2;
+
+      if (rawT >= 1.0) {
+        flightCompleteRef.current = true;
+        // Hide trail points upon flight arrival to avoid accumulating active meshes
+        trailRefs.current.forEach((m) => {
+          if (m) m.visible = false;
+        });
+        return;
+      }
+    } else if (isHighlighted) {
+      t = (clock.getElapsedTime() * 0.45) % 1.0;
+    } else {
+      t = (clock.getElapsedTime() * 0.28) % 1.0;
+    }
+
+    // Direct object mutation without allocations
+    curve.getPoint(t, _tempVec);
+    particleRef.current.position.set(_tempVec.x, _tempVec.y, _tempVec.z);
+
+    // Update pooled trail points directly via Three.js mutation
+    if (isFlyingTo || isHighlighted) {
+      for (let i = 0; i < TRAIL_POOL_SIZE; i++) {
+        const mesh = trailRefs.current[i];
+        if (!mesh) continue;
+
+        const trailT = Math.max(0, t - (i + 1) * 0.016);
+        curve.getPoint(trailT, _tempVec);
+        mesh.position.set(_tempVec.x, _tempVec.y, _tempVec.z);
+
+        const scale = Math.max(0.2, 1.0 - (i / TRAIL_POOL_SIZE) * 0.65);
+        mesh.scale.set(scale, scale, scale);
+        mesh.visible = true;
+      }
     }
   });
 
@@ -109,43 +224,73 @@ function TransactionArc({
         color={isHighlighted ? '#FFFFFF' : color}
         lineWidth={isHighlighted ? 2.5 : 1.2}
         transparent
-        opacity={isHighlighted ? 0.95 : 0.4}
+        opacity={isHighlighted ? 0.95 : 0.35}
       />
-      <mesh ref={particleRef}>
-        <sphereGeometry args={[isHighlighted ? 0.035 : 0.02, 10, 10]} />
+      {/* Comet Head */}
+      <mesh ref={particleRef} geometry={headGeom}>
         <meshBasicMaterial color={isHighlighted ? '#FFFFFF' : color} />
       </mesh>
+      {/* Pooled Comet Trail Array (fixed 10 points) */}
+      {(isHighlighted || isFlyingTo) && (
+        <group>
+          {Array.from({ length: TRAIL_POOL_SIZE }).map((_, i) => (
+            <mesh
+              key={i}
+              ref={(el) => (trailRefs.current[i] = el)}
+              geometry={trailGeom}
+              material={trailMaterials[i]}
+              visible={false}
+            />
+          ))}
+        </group>
+      )}
     </group>
   );
-}
+});
 
 // 3D Flagged Marker
-function FlaggedMarker({ 
-  position, 
-  riskScore, 
-  isSelected, 
-  onClick 
-}: { 
+const FlaggedMarker: React.FC<{ 
   position: THREE.Vector3; 
   riskScore: number; 
   isSelected: boolean; 
   onClick: () => void;
-}) {
-  const color = riskScore >= 70 ? 'var(--risk-red)' : 'var(--risk-amber)';
+}> = React.memo(({ 
+  position, 
+  riskScore, 
+  isSelected, 
+  onClick 
+}) => {
+  const color = riskScore >= 70 ? '#FF6B6B' : '#FFAE42';
+  const groupRef = useRef<THREE.Group>(null);
+  const ringRef = useRef<THREE.Mesh>(null);
+
+  useFrame(({ camera, clock }) => {
+    if (!groupRef.current) return;
+    // Distance attenuation scale: scale = base * (distance / referenceDistance)
+    // Keeps markers crisp and constant on screen, preventing giant distorted blobs when camera dives close
+    const dist = camera.position.distanceTo(position);
+    const scale = Math.min(1.15, Math.max(0.30, dist / 4.6));
+    groupRef.current.scale.set(scale, scale, scale);
+
+    if (isSelected && ringRef.current) {
+      const s = 1.0 + Math.sin(clock.getElapsedTime() * 5) * 0.22;
+      ringRef.current.scale.set(s, s, s);
+    }
+  });
 
   return (
-    <group position={position} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+    <group ref={groupRef} position={position} onClick={(e) => { e.stopPropagation(); onClick(); }}>
       <mesh>
-        <sphereGeometry args={[isSelected ? 0.05 : 0.035, 12, 12]} />
+        <sphereGeometry args={[isSelected ? 0.052 : 0.035, 12, 12]} />
         <meshBasicMaterial color={color} />
       </mesh>
-      <mesh>
-        <ringGeometry args={[0.045, isSelected ? 0.09 : 0.065, 20]} />
-        <meshBasicMaterial color={color} transparent opacity={isSelected ? 0.8 : 0.35} side={THREE.DoubleSide} />
+      <mesh ref={ringRef}>
+        <ringGeometry args={[0.045, isSelected ? 0.095 : 0.065, 20]} />
+        <meshBasicMaterial color={color} transparent opacity={isSelected ? 0.85 : 0.35} side={THREE.DoubleSide} />
       </mesh>
     </group>
   );
-}
+});
 
 // 3D Country Heatmap Ring
 function CountryHeatmapRing({
@@ -184,7 +329,7 @@ function CountryHeatmapRing({
   );
 }
 
-// Camera Fly-To Controller with smooth easing
+// Camera Fly-To Controller with smooth easing, distance clamping & zero frame allocations
 function CameraController({ 
   targetPos, 
   isFlying 
@@ -192,11 +337,38 @@ function CameraController({
   targetPos: THREE.Vector3 | null; 
   isFlying: boolean;
 }) {
+  const defaultPos = useMemo(() => new THREE.Vector3(0, 0, 5.0), []);
+  const defaultLookAt = useMemo(() => new THREE.Vector3(0, 0, 0), []);
+
   useFrame(({ camera }) => {
-    if (isFlying && targetPos) {
-      const desiredPos = targetPos.clone().normalize().multiplyScalar(3.2);
-      camera.position.lerp(desiredPos, 0.06);
-      camera.lookAt(targetPos.clone().multiplyScalar(0.4));
+    if (isFlying && targetPos && targetPos.lengthSq() > 0.01 && !Number.isNaN(targetPos.x)) {
+      _cameraDesiredPos.copy(targetPos).normalize().multiplyScalar(3.15);
+      camera.position.lerp(_cameraDesiredPos, 0.06);
+
+      // Enforce camera distance clamp (min 2.38) so camera can NEVER penetrate or touch the globe surface (2.0)
+      const minDistance = 2.38;
+      if (camera.position.length() < minDistance) {
+        camera.position.normalize().multiplyScalar(minDistance);
+      }
+
+      _cameraLookAtPos.copy(targetPos).multiplyScalar(0.4);
+      camera.lookAt(_cameraLookAtPos);
+    } else if (!isFlying) {
+      // Smoothly restore default view if camera drifted
+      if (camera.position.distanceTo(defaultPos) > 0.05) {
+        camera.position.lerp(defaultPos, 0.06);
+        camera.lookAt(defaultLookAt);
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      (window as any).__THREE_CAMERA_TELEMETRY = {
+        distance: camera.position.length(),
+        position: [camera.position.x, camera.position.y, camera.position.z],
+        near: (camera as any).near,
+        far: (camera as any).far,
+        isFlying
+      };
     }
   });
 
@@ -246,7 +418,7 @@ function RadarFallback({
   showHeatmap = false
 }: {
   flaggedItems: Transaction[];
-  focusedTxn?: Transaction;
+  focusedTxn?: Transaction | null;
   onSelectTxn: (t: Transaction) => void;
   showHeatmap?: boolean;
 }) {
@@ -321,6 +493,158 @@ function RadarFallback({
 // 'settled_map': 2.6s - 4.0s+ (settled at zoom 15, 500m circle, marker dropped, side panel open)
 type SequencePhase = 'globe_idle' | 'flying_globe' | 'crossfading' | 'settled_map';
 
+/**
+ * Single function that owns all scrolling for Fly-to-Location.
+ * Resolves the target fresh at call time, checks real container,
+ * computes: top = target.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - headerHeight - 16
+ * Guards: if the map is already fully in view, does not scroll at all.
+ */
+export function scrollToMap(force = false) {
+  const target = document.getElementById('globe-map-stage');
+  if (!target) return;
+
+  // Resolve the real scroll container dynamically
+  let container: HTMLElement | null = null;
+  let parent = target.parentElement;
+  while (parent && parent !== document.body && parent !== document.documentElement) {
+    const style = window.getComputedStyle(parent);
+    if (/(auto|scroll)/.test(style.overflowY) && parent.scrollHeight > parent.clientHeight) {
+      container = parent;
+      break;
+    }
+    parent = parent.parentElement;
+  }
+
+  const header = document.querySelector('header') || document.querySelector('nav');
+  const headerHeight = header ? header.getBoundingClientRect().height : 64;
+  const targetRect = target.getBoundingClientRect();
+
+  if (!container || container === document.body || container === document.documentElement) {
+    // Window / Document root is the active scroll container
+    // Check if stage is already fully in view
+    const isFullyInView = targetRect.top >= (headerHeight - 10) && targetRect.bottom <= (window.innerHeight + 40);
+    if (!force && isFullyInView) return;
+
+    const top = Math.max(0, targetRect.top + window.scrollY - headerHeight - 16);
+    window.scrollTo({
+      top,
+      behavior: 'smooth'
+    });
+  } else {
+    // Inner element scroll container
+    const containerRect = container.getBoundingClientRect();
+    const isFullyInView = targetRect.top >= containerRect.top && targetRect.bottom <= containerRect.bottom;
+    if (!force && isFullyInView) return;
+
+    const top = Math.max(0, targetRect.top - containerRect.top + container.scrollTop - headerHeight - 16);
+    container.scrollTo({
+      top,
+      behavior: 'smooth'
+    });
+  }
+}
+
+interface LiveTrackingPanelBlockProps {
+  status: LiveTrackingStatus | null;
+}
+
+const LiveTrackingPanelBlock: React.FC<LiveTrackingPanelBlockProps> = React.memo(({ status }) => {
+  if (!status) return null;
+
+  const { chain, currentHopIndex, status: trackingState, activeHop } = status;
+
+  return (
+    <div className="p-3 rounded-xl bg-white/[0.03] border border-[var(--line)] text-xs space-y-2 mb-3 transition-colors">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-[var(--live)] animate-ping" />
+          <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--sage-3)] font-semibold">
+            Live Corridor Tracking
+          </span>
+        </div>
+        <span
+          className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-medium border ${
+            trackingState === 'Reached Destination'
+              ? 'bg-[var(--live)]/20 text-[var(--live)] border-[var(--live)]/40'
+              : trackingState === 'Layered'
+              ? 'bg-[var(--risk-amber)]/20 text-[var(--risk-amber)] border-[var(--risk-amber)]/40'
+              : 'bg-[var(--sage-2)]/20 text-[var(--sage-2)] border-[var(--sage-2)]/40'
+          }`}
+        >
+          {trackingState}
+        </span>
+      </div>
+
+      {/* Account Chain Steps */}
+      <div className="space-y-1.5 pt-1">
+        {chain.map((hop, idx) => {
+          const isPassed = idx < currentHopIndex;
+          const isCurrent = idx === currentHopIndex;
+
+          return (
+            <div
+              key={hop.id + idx}
+              className={`flex items-center justify-between p-1.5 rounded-lg transition-all ${
+                isCurrent
+                  ? 'bg-white/[0.08] border border-[var(--risk-red)]/50 shadow-sm'
+                  : 'bg-white/[0.015] border border-transparent'
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-mono font-bold shrink-0 ${
+                    isPassed
+                      ? 'bg-[var(--live)] text-darkCanvas'
+                      : isCurrent
+                      ? 'bg-[var(--risk-red)] text-white animate-pulse'
+                      : 'bg-white/10 text-[var(--muted)]'
+                  }`}
+                >
+                  {isPassed ? '✓' : idx + 1}
+                </span>
+                <div className="flex flex-col min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`font-mono text-[11px] truncate ${
+                        isCurrent
+                          ? 'text-white font-bold'
+                          : isPassed
+                          ? 'text-[var(--text)]'
+                          : 'text-[var(--muted)]'
+                      }`}
+                    >
+                      {hop.account}
+                    </span>
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-white/5 text-[var(--muted)] shrink-0 capitalize">
+                      {hop.role === 'intermediary' ? 'Layering' : hop.role}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-[var(--muted)] truncate">
+                    {hop.city} • {hop.bank}
+                  </span>
+                </div>
+              </div>
+
+              {isCurrent && (
+                <span className="text-[9px] font-mono text-[var(--risk-red)] font-semibold shrink-0 ml-2 animate-pulse">
+                  ACTIVE
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="pt-1 border-t border-white/5 flex items-center justify-between text-[10px] text-[var(--muted)] font-mono">
+        <span>Active Node:</span>
+        <span className="text-[var(--sage-2)] truncate max-w-[170px]">
+          {activeHop ? `${activeHop.entityName}` : 'Analyzing route...'}
+        </span>
+      </div>
+    </div>
+  );
+});
+
 export const GlobeView: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -346,6 +670,13 @@ export const GlobeView: React.FC = () => {
   const mapControllerRef = useRef<UnifiedMapController | null>(null);
   const sequenceTimersRef = useRef<NodeJS.Timeout[]>([]);
   const animFrameRef = useRef<number | null>(null);
+  const sidePanelRef = useRef<HTMLDivElement>(null);
+
+  useOnClickOutside(sidePanelRef, () => {
+    if (sequencePhase === 'settled_map') {
+      handleBackToGlobe();
+    }
+  }, { enabled: sequencePhase === 'settled_map' });
 
   // Check WebGL on mount
   useEffect(() => {
@@ -363,13 +694,28 @@ export const GlobeView: React.FC = () => {
     }).slice(0, 30);
   }, [transactions, riskFilter, typologyFilter]);
 
+  // Memoize stable 3D coordinates for all flagged items to prevent re-allocating vectors on each render
+  const arcItems = useMemo(() => {
+    return flaggedItems.map((item) => ({
+      item,
+      fromPos: latLngToVector3(item.fromLat, item.fromLng, 2.0),
+      toPos: latLngToVector3(item.toLat, item.toLng, 2.0),
+      color: item.riskScore >= 70 ? '#FF6B6B' : '#FFAE42'
+    }));
+  }, [flaggedItems]);
+
   // Target transaction from URL, store, or active side panel
-  const urlCaseId = searchParams.get('case');
+  const urlCaseId = searchParams.get('case') || searchParams.get('flyTo');
   const urlView = searchParams.get('view');
 
   const focusedTxn = useMemo(() => {
     const targetId = urlCaseId || activeSidePanelTxn?.id || flyToCaseId || selectedTxnId;
-    return transactions.find(t => t.id === targetId) || flaggedItems[0] || transactions[0];
+    let rawTxn = transactions.find(t => t.id === targetId);
+    if (!rawTxn && targetId) {
+      rawTxn = transactions.find(t => t.id.includes(targetId) || t.toCity.toLowerCase() === targetId.toLowerCase());
+    }
+    const resolved = rawTxn || flaggedItems[0] || transactions[0];
+    return resolved ? sanitizeTransactionCoordinates(resolved) : null;
   }, [urlCaseId, activeSidePanelTxn?.id, flyToCaseId, selectedTxnId, transactions, flaggedItems]);
 
   const targetVector = useMemo(() => {
@@ -377,7 +723,7 @@ export const GlobeView: React.FC = () => {
       return latLngToVector3(focusedTxn.toLat, focusedTxn.toLng, 2.0);
     }
     return null;
-  }, [focusedTxn?.id]);
+  }, [focusedTxn?.id, focusedTxn?.toLat, focusedTxn?.toLng]);
 
   // Distance calculation (Haversine)
   const corridorDistance = useMemo(() => {
@@ -403,8 +749,9 @@ export const GlobeView: React.FC = () => {
   // Run the 4-second sequence
   const startDiveSequence = useCallback((targetCase: Transaction) => {
     clearSequenceTimers();
-    setActiveSidePanelTxn(targetCase);
-    selectTxn(targetCase.id);
+    const safeCase = sanitizeTransactionCoordinates(targetCase);
+    setActiveSidePanelTxn(safeCase);
+    selectTxn(safeCase.id);
 
     // Phase 1: 0.0s - 1.8s Flying Globe
     setSequencePhase('flying_globe');
@@ -448,7 +795,20 @@ export const GlobeView: React.FC = () => {
       }
     }, 2600);
 
-    sequenceTimersRef.current.push(tCrossfade, tSettle);
+    // Phase 4: Deterministic 3.0s hard max watchdog (guarantees handoff to satellite map)
+    const tWatchdog = setTimeout(() => {
+      setSequencePhase((current) => {
+        if (current !== 'settled_map') {
+          return 'settled_map';
+        }
+        return current;
+      });
+      if (mapControllerRef.current) {
+        mapControllerRef.current.setZoom(15);
+      }
+    }, 3000);
+
+    sequenceTimersRef.current.push(tCrossfade, tSettle, tWatchdog);
   }, [selectTxn]);
 
   // Skip Animation to Settled Map immediately
@@ -489,24 +849,59 @@ export const GlobeView: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [sequencePhase, handleSkipAnimation, handleBackToGlobe]);
 
-  // Monitor URL parameters: /globe?case=ID&view=map triggers sequence automatically
+  // Live Corridor Tracking State
+  const [trackingStatus, setTrackingStatus] = useState<LiveTrackingStatus | null>(null);
+
+  // Initialize tracking status when focusedTxn changes
   useEffect(() => {
-    if (urlView === 'map' && urlCaseId) {
-      const match = transactions.find(t => t.id === urlCaseId);
-      if (match && (sequencePhase === 'globe_idle' || activeSidePanelTxn?.id !== match.id)) {
-        startDiveSequence(match);
+    if (focusedTxn) {
+      const { hops } = generateAccountChain(focusedTxn);
+      setTrackingStatus({
+        currentHopIndex: 0,
+        status: 'In Transit',
+        activeHop: hops[0],
+        nextHop: hops[1],
+        chain: hops
+      });
+    } else {
+      setTrackingStatus(null);
+    }
+  }, [focusedTxn?.id]);
+
+  // Monitor URL parameters: /globe?case=ID&view=map or /globe?flyTo=ID triggers sequence automatically
+  useEffect(() => {
+    const isMapRequested = urlView === 'map' || !!searchParams.get('flyTo') || !!searchParams.get('case');
+    if (isMapRequested && urlCaseId) {
+      let match = transactions.find(t => t.id === urlCaseId);
+      if (!match) {
+        match = transactions.find(t => t.id.includes(urlCaseId) || t.toCity.toLowerCase() === urlCaseId.toLowerCase()) || flaggedItems[0] || transactions[0];
       }
-    } else if (!urlView && sequencePhase === 'settled_map') {
+      if (match) {
+        if (sequencePhase === 'globe_idle' || activeSidePanelTxn?.id !== match.id) {
+          startDiveSequence(sanitizeTransactionCoordinates(match));
+        }
+      }
+    } else if (!urlView && !searchParams.get('flyTo') && sequencePhase === 'settled_map') {
       // Browser Back pressed
       handleBackToGlobe();
     }
-  }, [urlView, urlCaseId, transactions, sequencePhase, activeSidePanelTxn?.id, startDiveSequence, handleBackToGlobe]);
+  }, [urlView, urlCaseId, searchParams, transactions, sequencePhase, activeSidePanelTxn?.id, startDiveSequence, handleBackToGlobe, flaggedItems]);
 
   // Trigger Fly-To from UI table or markers
-  const triggerFlyToSequence = (txn: Transaction) => {
+  const triggerFlyToSequence = useCallback((txn: Transaction) => {
     setSearchParams({ case: txn.id, view: 'map' });
     startDiveSequence(txn);
-  };
+  }, [setSearchParams, startDiveSequence]);
+
+  // Scroll to map stage after layout updates (single source of truth for scrolling)
+  // Runs after render paint; no-ops if map is already fully in view
+  useEffect(() => {
+    if (!focusedTxn || sequencePhase === 'globe_idle') return;
+    const rafId = requestAnimationFrame(() => {
+      scrollToMap();
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [focusedTxn?.id, sequencePhase]);
 
   const handleClearAlert = (txnId: string) => {
     updateCaseStatus(txnId, 'Cleared', 'Alert cleared from 3D Globe Map view.');
@@ -516,11 +911,6 @@ export const GlobeView: React.FC = () => {
     addToast('SAR Auto-Drafted', `SAR filing generated for Case #${txn.id} (${txn.typologyLabel}).`, 'success');
     navigate('/sar');
   };
-
-  // Ensure Globe route always mounts scrolled to top
-  useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-  }, []);
 
   return (
     <motion.div
@@ -532,17 +922,20 @@ export const GlobeView: React.FC = () => {
     >
       {/* =========================================================================
           STAGE CONTAINER: 3D GLOBE <-> REAL MAP CROSS-FADE STAGE
-          First thing under fixed nav: fills remaining viewport height (zero scrolling needed)
+          Fills remaining viewport height (zero scrolling needed)
           ========================================================================= */}
-      <div className="relative w-full h-[calc(100vh-140px)] min-h-[580px] rounded-[32px] glass-panel overflow-hidden border border-[var(--line)] shadow-2xl">
+      <div 
+        id="globe-map-stage"
+        className="relative w-full h-[calc(100vh-140px)] min-h-[580px] rounded-[16px] fintech-card overflow-hidden border border-white/[0.08] shadow-2xl"
+      >
         
         {/* Floating Glass Header & Controls Bar Overlay on Globe Stage */}
         <div className="absolute top-4 left-4 right-4 z-20 flex flex-col md:flex-row md:items-center justify-between gap-3 pointer-events-none">
-          <div className="glass-panel px-4 py-2 border border-white/10 shadow-lg pointer-events-auto flex items-center gap-3 backdrop-blur-xl bg-[#0B0F0D]/80 rounded-full">
-            <h2 className="text-base font-light text-[var(--text)] tracking-tight">
+          <div className="fintech-card px-4 py-2 border border-white/10 shadow-lg pointer-events-auto flex items-center gap-3 backdrop-blur-xl bg-[#141417]/90 rounded-full">
+            <h2 className="text-base font-medium text-white tracking-tight">
               Global Surveillance Globe
             </h2>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--risk-red)]/20 text-[var(--risk-red)] font-mono font-medium border border-[var(--risk-red)]/30">
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#E5484D]/20 text-[#E5484D] font-mono font-medium border border-[#E5484D]/30">
               {flaggedItems.length} Vectors Active
             </span>
           </div>
@@ -563,38 +956,38 @@ export const GlobeView: React.FC = () => {
               <>
                 <button
                   onClick={() => setIsZoomActive(!isZoomActive)}
-                  className={`pill-btn-secondary text-xs flex items-center gap-1.5 shadow-lg ${isZoomActive ? 'bg-white text-darkCanvas font-medium' : ''}`}
+                  className={`pill-btn-secondary text-xs flex items-center gap-1.5 shadow-lg ${isZoomActive ? 'bg-white text-black font-medium' : ''}`}
                   title="Enable or disable mouse-wheel zoom on 3D globe"
                 >
-                  {isZoomActive ? <ZoomOut className="w-3.5 h-3.5" /> : <ZoomIn className="w-3.5 h-3.5 text-[var(--sage-3)]" />}
+                  {isZoomActive ? <ZoomOut className="w-3.5 h-3.5" /> : <ZoomIn className="w-3.5 h-3.5 text-[var(--caption)]" />}
                   <span>{isZoomActive ? 'Zoom Active' : 'Zoom Off'}</span>
                 </button>
 
                 <button
                   onClick={() => setIsHeatmapActive(!isHeatmapActive)}
-                  className={`pill-btn-secondary text-xs flex items-center gap-1.5 shadow-lg ${isHeatmapActive ? 'bg-white text-[#0A0D0C] font-medium' : ''}`}
+                  className={`pill-btn-secondary text-xs flex items-center gap-1.5 shadow-lg ${isHeatmapActive ? 'bg-white text-black font-medium' : ''}`}
                   title="Toggle country risk density heatmap"
                 >
                   <Layers className="w-3.5 h-3.5" />
                   <span>{isHeatmapActive ? 'Heatmap: Active' : 'Country Heatmap'}</span>
                 </button>
 
-                <div className="glass-panel p-1 flex items-center gap-1 shadow-lg bg-[#0B0F0D]/80 rounded-full">
+                <div className="p-1 flex items-center gap-1 shadow-lg bg-[#141417]/90 border border-white/10 rounded-full">
                   <button
                     onClick={() => setRiskFilter('all')}
-                    className={`px-2.5 py-0.5 rounded-full text-xs transition-all ${riskFilter === 'all' ? 'bg-white text-[#0A0D0C] font-medium' : 'text-[var(--muted)] hover:text-white'}`}
+                    className={`px-2.5 py-0.5 rounded-full text-xs transition-all ${riskFilter === 'all' ? 'bg-white text-black font-medium' : 'text-[var(--muted)] hover:text-white'}`}
                   >
                     All
                   </button>
                   <button
                     onClick={() => setRiskFilter('critical')}
-                    className={`px-2.5 py-0.5 rounded-full text-xs transition-all ${riskFilter === 'critical' ? 'bg-[var(--risk-red)] text-white font-medium' : 'text-[var(--muted)] hover:text-white'}`}
+                    className={`px-2.5 py-0.5 rounded-full text-xs transition-all ${riskFilter === 'critical' ? 'bg-[#E5484D] text-white font-medium' : 'text-[var(--muted)] hover:text-white'}`}
                   >
                     Critical
                   </button>
                   <button
                     onClick={() => setRiskFilter('medium')}
-                    className={`px-2.5 py-0.5 rounded-full text-xs transition-all ${riskFilter === 'medium' ? 'bg-[var(--risk-amber)] text-white font-medium' : 'text-[var(--muted)] hover:text-white'}`}
+                    className={`px-2.5 py-0.5 rounded-full text-xs transition-all ${riskFilter === 'medium' ? 'bg-[#F5C04A] text-black font-medium' : 'text-[var(--muted)] hover:text-white'}`}
                   >
                     Medium
                   </button>
@@ -603,7 +996,7 @@ export const GlobeView: React.FC = () => {
                 <select
                   value={typologyFilter}
                   onChange={(e) => setTypologyFilter(e.target.value)}
-                  className="glass-panel px-3 py-1.5 text-xs text-[var(--text)] bg-[#0B0F0D]/80 border border-white/10 rounded-full focus:outline-none cursor-pointer shadow-lg"
+                  className="px-3 py-1.5 text-xs text-white bg-[#141417]/90 border border-white/10 rounded-full focus:outline-none cursor-pointer shadow-lg font-sans"
                 >
                   <option value="all" className="bg-[#0B0F0D]">All Typologies</option>
                   <option value="structuring" className="bg-[#0B0F0D]">Structuring (&lt;$10k)</option>
@@ -642,7 +1035,7 @@ export const GlobeView: React.FC = () => {
               }
             >
               <div className="w-full h-full cursor-grab active:cursor-grabbing">
-                <Canvas camera={{ position: [0, 0, 5.0], fov: 45 }}>
+                <Canvas camera={{ position: [0, 0, 5.0], fov: 45, near: 0.01, far: 1000 }}>
                   <ambientLight intensity={0.4} />
                   <pointLight position={[10, 10, 10]} intensity={1.2} />
                   <pointLight position={[-10, -10, -10]} intensity={0.5} />
@@ -655,7 +1048,7 @@ export const GlobeView: React.FC = () => {
                   <OrbitControls 
                     enablePan={false} 
                     enableZoom={isZoomActive}
-                    minDistance={2.8} 
+                    minDistance={2.4} 
                     maxDistance={7.5} 
                     dampingFactor={0.05} 
                     rotateSpeed={0.6}
@@ -673,9 +1066,7 @@ export const GlobeView: React.FC = () => {
                     />
                   ))}
 
-                  {flaggedItems.map((item) => {
-                    const fromPos = latLngToVector3(item.fromLat, item.fromLng, 2.0);
-                    const toPos = latLngToVector3(item.toLat, item.toLng, 2.0);
+                  {arcItems.map(({ item, fromPos, toPos, color }) => {
                     const isSelected = focusedTxn?.id === item.id;
 
                     return (
@@ -683,8 +1074,9 @@ export const GlobeView: React.FC = () => {
                         <TransactionArc
                           fromPos={fromPos}
                           toPos={toPos}
-                          color={item.riskScore >= 70 ? 'var(--risk-red)' : 'var(--risk-amber)'}
+                          color={color}
                           isHighlighted={isSelected}
+                          isFlyingTo={sequencePhase === 'flying_globe' && isSelected}
                         />
                         <FlaggedMarker
                           position={fromPos}
@@ -732,7 +1124,7 @@ export const GlobeView: React.FC = () => {
             display: sequencePhase === 'globe_idle' ? 'none' : 'block'
           }}
         >
-          {focusedTxn && (
+          {focusedTxn && (sequencePhase === 'crossfading' || sequencePhase === 'settled_map') && (
             <DiveMapContainer
               transaction={focusedTxn}
               initialZoom={sequencePhase === 'settled_map' ? 15 : 4}
@@ -740,6 +1132,7 @@ export const GlobeView: React.FC = () => {
                 mapControllerRef.current = ctl;
               }}
               isMapVisible={sequencePhase === 'crossfading' || sequencePhase === 'settled_map'}
+              onTrackingUpdate={setTrackingStatus}
             />
           )}
         </div>
@@ -766,22 +1159,23 @@ export const GlobeView: React.FC = () => {
         <AnimatePresence>
           {sequencePhase === 'settled_map' && focusedTxn && (
             <motion.div
+              ref={sidePanelRef}
               initial={{ x: 380, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: 380, opacity: 0 }}
               transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-              className="absolute right-4 top-4 bottom-4 z-20 w-80 md:w-96 max-w-[calc(100vw-32px)] glass-panel p-5 border border-white/20 shadow-2xl flex flex-col justify-between bg-[#0B0F0D]/95 backdrop-blur-xl"
+              className="absolute right-4 top-4 bottom-4 z-20 w-80 md:w-96 max-w-[calc(100vw-32px)] rounded-[16px] p-5 border border-white/10 shadow-2xl flex flex-col justify-between bg-[#121215]/95 backdrop-blur-xl"
             >
-              <div>
+              <div className="flex-1 overflow-y-auto pr-1 space-y-3 custom-scrollbar">
                 {/* Header */}
-                <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
+                <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
                   <div className="flex items-center gap-2">
-                    <ShieldAlert className="w-4 h-4 text-[var(--risk-red)]" />
+                    <ShieldAlert className="w-4 h-4 text-[#E5484D]" />
                     <div>
-                      <h3 className="text-sm font-medium text-white">
+                      <h3 className="text-sm font-semibold text-white">
                         Case #{focusedTxn.id}
                       </h3>
-                      <p className="text-[10px] text-[var(--muted)] font-mono">
+                      <p className="text-[10px] text-[var(--caption)] font-mono">
                         Perimeter Surveillance Active
                       </p>
                     </div>
@@ -796,20 +1190,23 @@ export const GlobeView: React.FC = () => {
                 </div>
 
                 {/* Unified Risk Score */}
-                <div className="flex items-center justify-between my-3 p-2.5 rounded-xl bg-white/[0.02] border border-[var(--line)]">
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.08]">
                   <div className="flex flex-col">
                     <span className="text-[11px] text-[var(--muted)]">Unified Risk Score</span>
-                    <span className="text-[10px] font-mono text-[var(--sage-2)]">500m activity perimeter</span>
+                    <span className="text-[10px] font-mono text-[var(--brand-orange)]">500m activity perimeter</span>
                   </div>
                   <span className={`text-lg font-mono font-bold ${
-                    focusedTxn.riskScore >= 70 ? 'text-[var(--risk-red)]' : 'text-[var(--risk-amber)]'
+                    focusedTxn.riskScore >= 70 ? 'text-[#E5484D]' : 'text-[#F5C04A]'
                   }`}>
                     {focusedTxn.riskScore.toFixed(1)} / 100
                   </span>
                 </div>
 
+                {/* Live Tracking Progress Block */}
+                <LiveTrackingPanelBlock status={trackingStatus} />
+
                 {/* Case Metadata Box */}
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-[var(--line)] text-xs font-mono space-y-1.5 mb-3">
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] text-xs font-mono space-y-1.5">
                   <div className="flex justify-between text-[var(--muted)]">
                     <span>Typology:</span>
                     <span className="text-white font-sans font-medium">{focusedTxn.typologyLabel}</span>
@@ -820,7 +1217,7 @@ export const GlobeView: React.FC = () => {
                   </div>
                   <div className="flex justify-between text-[var(--muted)]">
                     <span>Corridor:</span>
-                    <span className="text-[var(--sage-3)]">{focusedTxn.fromCity} ➔ {focusedTxn.toCity}</span>
+                    <span className="text-white font-semibold">{focusedTxn.fromCity} ➔ {focusedTxn.toCity}</span>
                   </div>
                   <div className="flex justify-between text-[var(--muted)]">
                     <span>Distance:</span>
@@ -830,15 +1227,15 @@ export const GlobeView: React.FC = () => {
                   </div>
                   <div className="flex justify-between text-[var(--muted)]">
                     <span>Coordinates:</span>
-                    <span className="text-[var(--sage-2)]">
+                    <span className="text-[var(--caption)]">
                       {focusedTxn.toLat.toFixed(4)}°, {focusedTxn.toLng.toFixed(4)}°
                     </span>
                   </div>
                 </div>
 
                 {/* AI Narrative */}
-                <div className="text-xs leading-relaxed text-[var(--text)] font-light p-3 rounded-xl bg-white/[0.015] border border-[var(--line)]">
-                  <span className="text-[10px] font-mono uppercase text-[var(--sage-3)] block mb-1">
+                <div className="text-xs leading-relaxed text-[var(--text)] font-normal p-3 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+                  <span className="text-[10px] font-mono uppercase text-[#FF6A2B] block mb-1">
                     AI Perimeter Narrative
                   </span>
                   {focusedTxn.narrative}
@@ -846,14 +1243,14 @@ export const GlobeView: React.FC = () => {
               </div>
 
               {/* Action Buttons */}
-              <div className="pt-3 border-t border-[var(--line)] flex flex-col gap-2">
+              <div className="pt-3 border-t border-white/[0.08] flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
                       selectTxn(focusedTxn.id);
                       navigate(`/detail/${focusedTxn.id}`);
                     }}
-                    className="flex-1 pill-btn-primary text-xs flex items-center justify-center gap-1.5 py-2"
+                    className="flex-1 pill-btn-primary text-xs flex items-center justify-center gap-1.5 py-2 shadow-md"
                   >
                     <span>Investigate Case</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -894,25 +1291,25 @@ export const GlobeView: React.FC = () => {
       {/* =========================================================================
           GLOBAL CORRIDORS TABLE (Enables Natural Page Scrolling & Exploration)
           ========================================================================= */}
-      <div className="glass-panel overflow-hidden border border-[var(--line)]">
-        <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
+      <div className="fintech-card rounded-[16px] overflow-hidden border border-white/[0.08]">
+        <div className="p-4 border-b border-white/[0.08] flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-medium text-[var(--text)]">
+            <h3 className="text-sm font-semibold text-white">
               Monitored Geographic Corridors
             </h3>
-            <p className="text-xs text-[var(--muted)]">
+            <p className="text-xs text-[var(--caption)]">
               Click any corridor to trigger smooth 3D globe flight and dive into high-resolution surveillance map
             </p>
           </div>
-          <span className="label-small">
+          <span className="text-[10px] font-mono uppercase text-[var(--caption)] tracking-wider">
             Simulated Coordinates
           </span>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scrollbar-thin">
           <table className="w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-[var(--line)] text-[10px] uppercase font-mono text-[var(--muted)] bg-white/[0.02]">
+              <tr className="border-b border-white/[0.06] text-[10px] uppercase font-mono text-[var(--caption)] bg-[#141417]/95">
                 <th className="py-3 px-4">Case ID</th>
                 <th className="py-3 px-4">Risk Rating</th>
                 <th className="py-3 px-4">Origin ➔ Destination</th>
@@ -926,30 +1323,30 @@ export const GlobeView: React.FC = () => {
                 <tr 
                   key={c.id}
                   onClick={() => triggerFlyToSequence(c)}
-                  className="hover:bg-white/[0.03] transition-colors cursor-pointer"
+                  className="hover:bg-white/[0.03] transition-colors cursor-pointer group"
                 >
-                  <td className="py-3 px-4 font-mono font-medium text-[var(--text)]">#{c.id}</td>
-                  <td className="py-3 px-4 font-mono">
-                    <span className={`px-2 py-0.5 rounded font-bold ${
-                      c.riskScore >= 70 ? 'bg-[var(--risk-red)]/20 text-[var(--risk-red)]' : 'bg-[var(--risk-amber)]/20 text-[var(--risk-amber)]'
+                  <td className="py-3 px-4 font-mono font-semibold text-white group-hover:text-[#FF6A2B] transition-colors">#{c.id}</td>
+                  <td className="py-3 px-4">
+                    <span className={`px-2 py-0.5 rounded-full font-mono text-[11px] font-bold border ${
+                      c.riskScore >= 70 ? 'bg-[#E5484D]/15 text-[#FF7075] border-[#E5484D]/30' : 'bg-[#F5C04A]/15 text-[#FAD375] border-[#F5C04A]/30'
                     }`}>
                       {c.riskScore.toFixed(0)} RISK
                     </span>
                   </td>
-                  <td className="py-3 px-4 text-[var(--text)]">
+                  <td className="py-3 px-4 text-[var(--text)] font-medium">
                     {c.fromCity} ({c.fromCountry}) ➔ {c.toCity} ({c.toCountry})
                   </td>
-                  <td className="py-3 px-4 font-mono">${c.amount.toLocaleString()}</td>
-                  <td className="py-3 px-4 text-[var(--sage-3)]">{c.typologyLabel}</td>
+                  <td className="py-3 px-4 font-mono font-semibold text-white">${c.amount.toLocaleString()}</td>
+                  <td className="py-3 px-4 text-[var(--muted)]">{c.typologyLabel}</td>
                   <td className="py-3 px-4 text-right">
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
                         triggerFlyToSequence(c);
                       }}
-                      className="px-3 py-1 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-xs font-medium text-white transition-all inline-flex items-center gap-1.5"
+                      className="px-3 py-1 rounded-full bg-white/[0.04] hover:bg-[#FF6A2B]/15 hover:border-[#FF6A2B]/40 text-xs font-medium text-white transition-all inline-flex items-center gap-1.5 border border-white/[0.08]"
                     >
-                      <MapPin className="w-3 h-3 text-[var(--risk-red)]" />
+                      <MapPin className="w-3 h-3 text-[#FF6A2B]" />
                       <span>Fly to Location</span>
                       <ArrowRight className="w-3 h-3" />
                     </button>

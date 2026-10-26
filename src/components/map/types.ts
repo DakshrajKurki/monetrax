@@ -55,6 +55,48 @@ export function calculateHaversineDistance(
   };
 }
 
+// Generate great-circle intermediate points between two coordinates for animated arc tracing
+export function getGreatCirclePoints(
+  fromLng: number,
+  fromLat: number,
+  toLng: number,
+  toLat: number,
+  numPoints = 60
+): [number, number][] {
+  const points: [number, number][] = [];
+  const toRad = Math.PI / 180;
+  const toDeg = 180 / Math.PI;
+
+  const φ1 = fromLat * toRad;
+  const λ1 = fromLng * toRad;
+  const φ2 = toLat * toRad;
+  const λ2 = toLng * toRad;
+
+  const d = 2 * Math.asin(
+    Math.sqrt(
+      Math.sin((φ2 - φ1) / 2) ** 2 +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin((λ2 - λ1) / 2) ** 2
+    )
+  );
+
+  if (d < 1e-6) {
+    return [[fromLng, fromLat], [toLng, toLat]];
+  }
+
+  for (let i = 0; i <= numPoints; i++) {
+    const f = i / numPoints;
+    const A = Math.sin((1 - f) * d) / Math.sin(d);
+    const B = Math.sin(f * d) / Math.sin(d);
+    const x = A * Math.cos(φ1) * Math.cos(λ1) + B * Math.cos(φ2) * Math.cos(λ2);
+    const y = A * Math.cos(φ1) * Math.sin(λ1) + B * Math.cos(φ2) * Math.sin(λ2);
+    const z = A * Math.sin(φ1) + B * Math.sin(φ2);
+    const lat = Math.atan2(z, Math.sqrt(x * x + y * y)) * toDeg;
+    const lng = Math.atan2(y, x) * toDeg;
+    points.push([lng, lat]);
+  }
+  return points;
+}
+
 // Generate deterministic nearby simulated accounts around coordinates
 export function getMockNearbyAccounts(centerLat: number, centerLng: number, caseId: string): NearbyAccount[] {
   // Use simple hash of caseId for seed
@@ -142,4 +184,156 @@ export function createCircleGeoJSON(centerLat: number, centerLng: number, radius
       coordinates: [coords]
     }
   };
+}
+
+import { resolveLocationCoordinates } from '../../utils/coordinateResolver';
+
+// ----------------------------------------------------------------------------
+// Multi-Hop Account Chain & Live Tracking Types and Helpers
+// ----------------------------------------------------------------------------
+export interface AccountHop {
+  id: string;
+  account: string;
+  entityName: string;
+  bank: string;
+  city: string;
+  country: string;
+  lat: number;
+  lng: number;
+  role: 'origin' | 'intermediary' | 'destination';
+  progressFraction: number; // 0.0 to 1.0 along the corridor
+}
+
+export interface LiveTrackingStatus {
+  currentHopIndex: number;
+  status: 'In Transit' | 'Layered' | 'Reached Destination';
+  activeHop: AccountHop;
+  nextHop?: AccountHop;
+  chain: AccountHop[];
+}
+
+export function generateAccountChain(txn: {
+  id: string;
+  fromAccount: string;
+  toAccount: string;
+  fromEntityName?: string;
+  toEntityName?: string;
+  fromBank: string;
+  toBank: string;
+  fromCity: string;
+  toCity: string;
+  fromCountry: string;
+  toCountry: string;
+  fromLat: number;
+  fromLng: number;
+  toLat: number;
+  toLng: number;
+  riskScore: number;
+  typology?: string;
+}): { hops: AccountHop[]; corridorPoints: [number, number][] } {
+  const fromCoords = resolveLocationCoordinates(txn.fromCity, txn.fromCountry, txn.fromLat, txn.fromLng);
+  const toCoords = resolveLocationCoordinates(txn.toCity, txn.toCountry, txn.toLat, txn.toLng);
+
+  // Always start with Origin
+  const hops: AccountHop[] = [
+    {
+      id: txn.fromAccount,
+      account: txn.fromAccount,
+      entityName: txn.fromEntityName || `${txn.fromCity || 'Origin'} Originator Entity`,
+      bank: txn.fromBank,
+      city: txn.fromCity || 'Origin City',
+      country: txn.fromCountry || 'Origin Country',
+      lat: fromCoords.lat,
+      lng: fromCoords.lng,
+      role: 'origin',
+      progressFraction: 0
+    }
+  ];
+
+  const seed = Math.abs(txn.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
+  const hasIntermediary = txn.riskScore >= 60 || txn.typology === 'cyclic_flow' || txn.typology === 'mule_fan';
+  const hasSecondIntermediary = txn.typology === 'cyclic_flow' || (txn.riskScore >= 75 && seed % 2 === 0);
+
+  if (hasIntermediary) {
+    const frac1 = hasSecondIntermediary ? 0.38 : 0.50;
+    const int1Points = getGreatCirclePoints(fromCoords.lng, fromCoords.lat, toCoords.lng, toCoords.lat, 100);
+    const idx1 = Math.floor(int1Points.length * frac1);
+    const [intLng1, intLat1] = int1Points[idx1] || [(fromCoords.lng + toCoords.lng) / 2, (fromCoords.lat + toCoords.lat) / 2];
+
+    const intCities = ['Zurich', 'London', 'Frankfurt', 'Dubai', 'Singapore', 'Luxembourg'];
+    const intBanks = ['EuroClear Intermediary Bank', 'Swiss Settlement Clearing AG', 'Aegis Transatlantic Escrow', 'Standard Correspondent Trust'];
+    const intCity = intCities[seed % intCities.length];
+    const intBank = intBanks[seed % intBanks.length];
+
+    hops.push({
+      id: `ACCT-INT-${(seed % 8999 + 1000)}`,
+      account: `ACCT-INT-${(seed % 8999 + 1000)}`,
+      entityName: `${intCity} Clearing & Escrow AG`,
+      bank: intBank,
+      city: intCity,
+      country: 'CH',
+      lat: Number.isFinite(intLat1) ? intLat1 : fromCoords.lat,
+      lng: Number.isFinite(intLng1) ? intLng1 : fromCoords.lng,
+      role: 'intermediary',
+      progressFraction: 0
+    });
+
+    if (hasSecondIntermediary) {
+      const frac2 = 0.72;
+      const idx2 = Math.floor(int1Points.length * frac2);
+      const [intLng2, intLat2] = int1Points[idx2] || [(fromCoords.lng + toCoords.lng * 2) / 3, (fromCoords.lat + toCoords.lat * 2) / 3];
+      const intCity2 = intCities[(seed + 2) % intCities.length];
+      const intBank2 = intBanks[(seed + 1) % intBanks.length];
+
+      hops.push({
+        id: `ACCT-SHELL-${(seed % 7999 + 2000)}`,
+        account: `ACCT-SHELL-${(seed % 7999 + 2000)}`,
+        entityName: `${intCity2} Layering Intermediary Ltd`,
+        bank: intBank2,
+        city: intCity2,
+        country: 'CY',
+        lat: Number.isFinite(intLat2) ? intLat2 : toCoords.lat,
+        lng: Number.isFinite(intLng2) ? intLng2 : toCoords.lng,
+        role: 'intermediary',
+        progressFraction: 0
+      });
+    }
+  }
+
+  // Final destination hop
+  hops.push({
+    id: txn.toAccount,
+    account: txn.toAccount,
+    entityName: txn.toEntityName || `${txn.toCity || 'Destination'} Beneficiary Entity`,
+    bank: txn.toBank,
+    city: txn.toCity || 'Destination City',
+    country: txn.toCountry || 'Destination Country',
+    lat: toCoords.lat,
+    lng: toCoords.lng,
+    role: 'destination',
+    progressFraction: 1.0
+  });
+
+  // Build the full continuous corridor points stitching all hops
+  const corridorPoints: [number, number][] = [];
+  const hopIndices: number[] = [0];
+
+  for (let i = 0; i < hops.length - 1; i++) {
+    const h1 = hops[i];
+    const h2 = hops[i + 1];
+    const legPoints = getGreatCirclePoints(h1.lng, h1.lat, h2.lng, h2.lat, 40);
+    if (i > 0 && legPoints.length > 0) {
+      legPoints.shift();
+    }
+    corridorPoints.push(...legPoints);
+    hopIndices.push(corridorPoints.length - 1);
+  }
+
+  // Assign exact progressFraction to each hop
+  const total = Math.max(1, corridorPoints.length - 1);
+  for (let i = 0; i < hops.length; i++) {
+    hops[i].progressFraction = hopIndices[i] / total;
+  }
+
+  return { hops, corridorPoints };
 }

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAMLStore } from '../../store/useAMLStore';
 import { pageVariants } from '../common/MotionComponents';
+import { PageHeader } from '../common/PageHeader';
 import { TypologyType } from '../../types';
 
 interface TypologyDefinition {
@@ -191,47 +192,41 @@ export const TypologyLibraryView: React.FC = () => {
       className="w-full flex flex-col gap-6 pb-16"
     >
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-light text-[var(--text)] tracking-tight">
-              AML Typology & Pattern Library
-            </h2>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--sage-2)]/20 text-[var(--sage-2)] font-mono font-medium border border-[var(--sage-2)]/30">
-              5 Active Classifiers
-            </span>
-          </div>
-          <p className="text-xs text-[var(--muted)] mt-1 font-light">
-            Algorithmic taxonomy of financial crime patterns, mathematical feature formulations, and active live incident counts.
-          </p>
-        </div>
-
-        {/* Filter Pills */}
-        <div className="glass-panel p-1 flex items-center gap-1 text-xs flex-wrap">
-          <button
-            onClick={() => setSelectedTypology('all')}
-            className={`px-3 py-1 rounded-full transition-all ${selectedTypology === 'all' ? 'bg-white text-[#0A0D0C] font-semibold' : 'text-[var(--muted)] hover:text-white'}`}
-          >
-            All Typologies
-          </button>
-          {typologies.map(t => (
+      <PageHeader
+        title="AML Typology & Pattern Library"
+        subtitle="Algorithmic taxonomy of financial crime patterns, mathematical feature formulations, and active live incident counts."
+        actions={
+          <div className="flex items-center gap-1.5 p-1 bg-white/[0.04] border border-[var(--line)] rounded-full text-xs flex-wrap">
             <button
-              key={t.id}
-              onClick={() => setSelectedTypology(t.id)}
-              className={`px-3 py-1 rounded-full transition-all ${selectedTypology === t.id ? 'bg-white text-[#0A0D0C] font-semibold' : 'text-[var(--muted)] hover:text-white'}`}
+              onClick={() => setSelectedTypology('all')}
+              className={`px-3 py-1 rounded-full transition-all ${
+                selectedTypology === 'all' ? 'bg-[var(--brand-orange)] text-white font-medium' : 'text-[var(--muted)] hover:text-white'
+              }`}
             >
-              {t.shortCode}
+              All Typologies
             </button>
-          ))}
-        </div>
-      </div>
+            {typologies.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setSelectedTypology(t.id)}
+                className={`px-3 py-1 rounded-full transition-all ${
+                  selectedTypology === t.id ? 'bg-[var(--brand-orange)] text-white font-medium' : 'text-[var(--muted)] hover:text-white'
+                }`}
+              >
+                {t.shortCode}
+              </button>
+            ))}
+          </div>
+        }
+        showPeriodPicker={false}
+      />
 
       {/* Typology Cards Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {filteredTypologies.map((t) => (
           <div
             key={t.id}
-            className="glass-panel p-6 border border-[var(--line)] flex flex-col justify-between hover:border-white/20 transition-all group"
+            className="fintech-card p-6 border border-[var(--line)] flex flex-col justify-between hover:border-white/20 transition-all group"
           >
             <div>
               {/* Card Header */}
@@ -261,8 +256,8 @@ export const TypologyLibraryView: React.FC = () => {
               </div>
 
               {/* Regulatory Reference */}
-              <div className="my-3 px-3 py-1.5 rounded-lg bg-white/[0.02] border border-[var(--line)] flex items-center gap-2 text-xs font-mono text-[var(--sage-3)]">
-                <ShieldAlert className="w-3.5 h-3.5 text-[var(--sage-2)] shrink-0" />
+              <div className="my-3 px-3 py-1.5 rounded-lg bg-white/[0.02] border border-[var(--line)] flex items-center gap-2 text-xs font-mono text-[var(--brand-orange)]">
+                <ShieldAlert className="w-3.5 h-3.5 text-[var(--brand-orange)] shrink-0" />
                 <span>Regulatory: {t.regulatoryRef}</span>
               </div>
 
@@ -280,7 +275,7 @@ export const TypologyLibraryView: React.FC = () => {
                   {t.algorithmicFeatures.map((f, i) => (
                     <div key={i} className="p-2 rounded-lg bg-white/[0.02] border border-[var(--line)] text-xs font-mono">
                       <div className="flex justify-between items-center text-white">
-                        <span className="font-medium text-[var(--sage-2)]">{f.name}</span>
+                        <span className="font-medium text-[var(--brand-orange)]">{f.name}</span>
                         <span className="text-[var(--risk-red)] font-bold">{f.weight}</span>
                       </div>
                       <div className="text-[10px] text-[var(--muted)] mt-0.5 font-light">
@@ -299,7 +294,7 @@ export const TypologyLibraryView: React.FC = () => {
                 <ul className="space-y-1 text-xs text-[var(--muted)] font-light">
                   {t.indicators.map((ind, i) => (
                     <li key={i} className="flex items-start gap-1.5">
-                      <span className="w-1 h-1 rounded-full bg-[var(--sage-2)] mt-1.5 shrink-0" />
+                      <span className="w-1 h-1 rounded-full bg-[var(--brand-orange)] mt-1.5 shrink-0" />
                       <span>{ind}</span>
                     </li>
                   ))}
@@ -313,7 +308,7 @@ export const TypologyLibraryView: React.FC = () => {
                 onClick={() => handleReplayPattern(t.id)}
                 className="pill-btn-secondary text-xs flex items-center gap-1.5"
               >
-                <Play className="w-3 h-3 text-[var(--sage-2)]" />
+                <Play className="w-3 h-3 text-[var(--brand-orange)]" />
                 <span>Replay in Graph</span>
               </button>
 

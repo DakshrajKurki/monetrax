@@ -94,10 +94,10 @@ export const Account360View: React.FC = () => {
       className="w-full flex flex-col gap-6 pb-16"
     >
       {/* Header Profile Card */}
-      <div className="glass-panel p-6 border border-[var(--line)] flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div className="fintech-card p-6 border border-[var(--line)] flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-start gap-4">
           <div className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-[var(--line)] flex items-center justify-center shrink-0">
-            <Building2 className="w-7 h-7 text-[var(--sage-2)]" />
+            <Building2 className="w-7 h-7 text-[var(--brand-orange)]" />
           </div>
           <div>
             <div className="flex items-center gap-3 flex-wrap">
@@ -112,8 +112,8 @@ export const Account360View: React.FC = () => {
                   activeAccount.watchlistStatus === 'Sanctions Hit'
                     ? 'bg-[var(--risk-red)]/20 text-[var(--risk-red)] border border-[var(--risk-red)]/30'
                     : activeAccount.watchlistStatus === 'PEP Watch'
-                    ? 'bg-[var(--risk-amber)]/20 text-[var(--risk-amber)] border border-[var(--risk-amber)]/30'
-                    : 'bg-[var(--live)]/20 text-[var(--live)] border border-[var(--live)]/30'
+                    ? 'bg-[var(--risk-yellow)]/20 text-[var(--risk-yellow)] border border-[var(--risk-yellow)]/30'
+                    : 'bg-[var(--risk-green)]/20 text-[var(--risk-green)] border border-[var(--risk-green)]/30'
                 }`}
               >
                 {activeAccount.watchlistStatus}
@@ -133,10 +133,10 @@ export const Account360View: React.FC = () => {
               selectAccount(e.target.value);
               navigate(`/account/${e.target.value}`);
             }}
-            className="glass-panel px-3 py-2 text-xs text-[var(--text)] bg-transparent border border-[var(--line)] rounded-full focus:outline-none cursor-pointer"
+            className="px-3 py-2 text-xs text-[var(--text)] bg-[#141416] border border-[var(--line)] rounded-full focus:outline-none cursor-pointer"
           >
             {accounts.slice(0, 30).map((a) => (
-              <option key={a.id} value={a.id} className="bg-[#0B0F0D]">
+              <option key={a.id} value={a.id} className="bg-[#141416]">
                 {a.id} - {a.entityName.substring(0, 24)}...
               </option>
             ))}
@@ -166,12 +166,12 @@ export const Account360View: React.FC = () => {
       {/* KPI & Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Risk Score */}
-        <div className="glass-panel p-5 border border-[var(--line)]">
+        <div className="fintech-card p-5 border border-[var(--line)]">
           <span className="text-xs text-[var(--muted)] uppercase font-mono block">Unified Risk Rating</span>
           <div className="flex items-baseline gap-2 mt-2">
             <span
               className={`text-3xl font-mono font-bold ${
-                activeAccount.riskScore >= 70 ? 'text-[var(--risk-red)]' : activeAccount.riskScore >= 40 ? 'text-[var(--risk-amber)]' : 'text-[var(--live)]'
+                activeAccount.riskScore >= 70 ? 'text-[var(--risk-red)]' : activeAccount.riskScore >= 40 ? 'text-[var(--risk-yellow)]' : 'text-[var(--risk-green)]'
               }`}
             >
               {activeAccount.riskScore.toFixed(1)}
@@ -184,7 +184,7 @@ export const Account360View: React.FC = () => {
         </div>
 
         {/* Balance & Velocity */}
-        <div className="glass-panel p-5 border border-[var(--line)]">
+        <div className="fintech-card p-5 border border-[var(--line)]">
           <span className="text-xs text-[var(--muted)] uppercase font-mono block">Liquid Balance</span>
           <div className="text-3xl font-mono font-bold text-white mt-2">
             {formatCurrency(activeAccount.balance)}
@@ -195,10 +195,10 @@ export const Account360View: React.FC = () => {
         </div>
 
         {/* 24h Velocity Drift */}
-        <div className="glass-panel p-5 border border-[var(--line)]">
+        <div className="fintech-card p-5 border border-[var(--line)]">
           <span className="text-xs text-[var(--muted)] uppercase font-mono block">24h Velocity Drift</span>
           <div className="flex items-baseline gap-2 mt-2">
-            <span className={`text-3xl font-mono font-bold ${velocityDriftPercent > 50 ? 'text-[var(--risk-red)]' : 'text-[var(--sage-3)]'}`}>
+            <span className={`text-3xl font-mono font-bold ${velocityDriftPercent > 50 ? 'text-[var(--risk-red)]' : 'text-[var(--brand-orange)]'}`}>
               {velocityDriftPercent > 0 ? '+' : ''}{velocityDriftPercent.toFixed(1)}%
             </span>
           </div>
@@ -208,14 +208,14 @@ export const Account360View: React.FC = () => {
         </div>
 
         {/* Inflow vs Outflow */}
-        <div className="glass-panel p-5 border border-[var(--line)]">
+        <div className="fintech-card p-5 border border-[var(--line)]">
           <span className="text-xs text-[var(--muted)] uppercase font-mono block">30-Day Flow Balance</span>
           <div className="flex items-center justify-between text-xs font-mono mt-3">
-            <div className="flex items-center gap-1 text-[var(--live)]">
+            <div className="flex items-center gap-1 text-[var(--risk-green)]">
               <ArrowDownLeft className="w-3.5 h-3.5" />
               <span>+{formatCurrency(activeAccount.inflow)}</span>
             </div>
-            <div className="flex items-center gap-1 text-[var(--risk-amber)]">
+            <div className="flex items-center gap-1 text-[var(--risk-yellow)]">
               <ArrowUpRight className="w-3.5 h-3.5" />
               <span>-{formatCurrency(activeAccount.outflow)}</span>
             </div>
@@ -258,9 +258,9 @@ export const Account360View: React.FC = () => {
                 <Line
                   type="monotone"
                   dataKey="score"
-                  stroke={activeAccount.riskScore >= 70 ? 'var(--risk-red)' : 'var(--sage-2)'}
+                  stroke={activeAccount.riskScore >= 70 ? 'var(--risk-red)' : 'var(--brand-orange)'}
                   strokeWidth={2}
-                  dot={{ r: 3, fill: activeAccount.riskScore >= 70 ? 'var(--risk-red)' : 'var(--sage-2)' }}
+                  dot={{ r: 3, fill: activeAccount.riskScore >= 70 ? 'var(--risk-red)' : 'var(--brand-orange)' }}
                   name="Risk Score"
                 />
               </LineChart>
@@ -284,14 +284,14 @@ export const Account360View: React.FC = () => {
                 <YAxis stroke="var(--muted)" fontSize={10} tickLine={false} tickFormatter={(v) => `$${v / 1000}k`} />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#0B0F0D',
+                    backgroundColor: '#111113',
                     borderColor: 'var(--line)',
                     borderRadius: '12px',
                     fontSize: '11px',
                     fontFamily: 'monospace'
                   }}
                 />
-                <Bar dataKey="totalAmount" fill="var(--sage-3)" radius={[4, 4, 0, 0]} name="Volume ($)" />
+                <Bar dataKey="totalAmount" fill="var(--brand-orange)" radius={[4, 4, 0, 0]} name="Volume ($)" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -299,7 +299,7 @@ export const Account360View: React.FC = () => {
       </div>
 
       {/* Direct Counterparties Breakdown */}
-      <div className="glass-panel overflow-hidden border border-[var(--line)]">
+      <div className="fintech-card overflow-hidden border border-[var(--line)]">
         <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
           <div>
             <h3 className="text-sm font-medium text-[var(--text)]">
@@ -339,7 +339,7 @@ export const Account360View: React.FC = () => {
                         HIGH RISK
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 rounded text-[10px] bg-[var(--live)]/20 text-[var(--live)] font-mono">
+                      <span className="px-2 py-0.5 rounded text-[10px] bg-[var(--risk-green)]/20 text-[var(--risk-green)] font-mono">
                         ROUTINE
                       </span>
                     )}
@@ -364,7 +364,7 @@ export const Account360View: React.FC = () => {
       </div>
 
       {/* Linked Compliance Cases */}
-      <div className="glass-panel overflow-hidden border border-[var(--line)]">
+      <div className="fintech-card overflow-hidden border border-[var(--line)]">
         <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
           <div>
             <h3 className="text-sm font-medium text-[var(--text)]">
@@ -400,11 +400,11 @@ export const Account360View: React.FC = () => {
                 {linkedCases.map((c) => (
                   <tr key={c.id} className="hover:bg-white/[0.02] transition-colors">
                     <td className="py-3 px-4 font-mono font-medium text-white">#{c.id}</td>
-                    <td className="py-3 px-4 text-[var(--sage-3)]">{c.typologyLabel}</td>
+                    <td className="py-3 px-4 text-[var(--brand-orange)]">{c.typologyLabel}</td>
                     <td className="py-3 px-4 font-mono font-bold">{formatCurrency(c.amount)}</td>
                     <td className="py-3 px-4 font-mono">
                       <span className={`px-2 py-0.5 rounded font-bold ${
-                        c.riskScore >= 70 ? 'bg-[var(--risk-red)]/20 text-[var(--risk-red)]' : 'bg-[var(--risk-amber)]/20 text-[var(--risk-amber)]'
+                        c.riskScore >= 70 ? 'bg-[var(--risk-red)]/20 text-[var(--risk-red)]' : 'bg-[var(--risk-yellow)]/20 text-[var(--risk-yellow)]'
                       }`}>
                         {c.riskScore.toFixed(0)} RISK
                       </span>

@@ -25,6 +25,8 @@ import {
 import { pageVariants } from '../common/MotionComponents';
 import { GlobalFilterBar } from '../common/GlobalFilterBar';
 import { DataTable, ColumnDef } from '../common/DataTable';
+import { PageHeader } from '../common/PageHeader';
+import { StatusPill } from '../common/StatusPill';
 import { Transaction, CaseStatus } from '../../types';
 import { formatCurrency, formatSLA, formatRelativeTime } from '../../utils/formatters';
 
@@ -38,11 +40,6 @@ export const CaseQueueView: React.FC = () => {
   const removeFilterChip = useAMLStore((s) => s.removeFilterChip);
   const clearAllFilters = useAMLStore((s) => s.clearAllFilters);
   const openAutoTriageModal = useAMLStore((s) => s.openAutoTriageModal);
-  const isAutoTriageModalOpen = useAMLStore((s) => s.isAutoTriageModalOpen);
-  const closeAutoTriageModal = useAMLStore((s) => s.closeAutoTriageModal);
-  const confirmAutoTriage = useAMLStore((s) => s.confirmAutoTriage);
-  const autoTriageCandidates = useAMLStore((s) => s.autoTriageCandidates);
-  const autoTriageReasoning = useAMLStore((s) => s.autoTriageReasoning);
   const updateCaseStatus = useAMLStore((s) => s.updateCaseStatus);
   const bulkUpdateCaseStatus = useAMLStore((s) => s.bulkUpdateCaseStatus);
   const globalFilters = useAMLStore((s) => s.globalFilters);
@@ -71,8 +68,8 @@ export const CaseQueueView: React.FC = () => {
             addFilterChip({
               id: `chip-${Date.now()}-${Math.random()}`,
               label: c.label,
-              field: c.key,
-              value: c.val
+              field: c.field || c.key || 'search',
+              value: c.value !== undefined ? c.value : c.val
             });
           });
           setInputVal('');
@@ -190,7 +187,7 @@ export const CaseQueueView: React.FC = () => {
           className="cursor-pointer text-[var(--muted)] hover:text-white"
         >
           {selectedIds.has(row.id) ? (
-            <CheckSquare className="w-4 h-4 text-[var(--sage-2)]" />
+            <CheckSquare className="w-4 h-4 text-[var(--brand-orange)]" />
           ) : (
             <Square className="w-4 h-4 opacity-50" />
           )}
@@ -204,10 +201,10 @@ export const CaseQueueView: React.FC = () => {
       accessor: (row) => row.riskScore,
       render: (row) => (
         <div className="flex items-center gap-2.5">
-          <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-mono text-xs font-semibold ${
+          <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-mono text-xs font-bold ${
             row.riskScore >= 70
-              ? 'border-[var(--risk-red)]/40 text-[var(--risk-red)] bg-[var(--risk-red)]/10'
-              : 'border-[var(--risk-amber)]/40 text-[var(--risk-amber)] bg-[var(--risk-amber)]/10'
+              ? 'border-[#E5484D]/50 text-[#E5484D] bg-[#E5484D]/15 shadow-sm'
+              : 'border-[#F5C04A]/50 text-[#F5C04A] bg-[#F5C04A]/15 shadow-sm'
           }`}>
             {Math.round(row.riskScore)}
           </div>
@@ -229,7 +226,7 @@ export const CaseQueueView: React.FC = () => {
           <div className="flex items-center gap-1.5 font-mono text-white font-medium">
             <span>#{row.id}</span>
           </div>
-          <span className={`text-[11px] font-sans block ${row.riskScore >= 70 ? 'text-[var(--risk-red)]' : 'text-[var(--risk-amber)]'}`}>
+          <span className={`text-[11px] font-sans font-medium block ${row.riskScore >= 70 ? 'text-[#E5484D]' : 'text-[#F5C04A]'}`}>
             {row.typologyLabel}
           </span>
         </div>
@@ -274,17 +271,7 @@ export const CaseQueueView: React.FC = () => {
       sortable: true,
       accessor: (row) => row.status,
       render: (row) => (
-        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-medium border ${
-          row.status === 'New' 
-            ? 'bg-[var(--risk-red)]/15 border-[var(--risk-red)]/30 text-[var(--risk-red)]'
-            : row.status === 'Under Review'
-            ? 'bg-[var(--risk-amber)]/15 border-[var(--risk-amber)]/30 text-[var(--risk-amber)]'
-            : row.status === 'Escalated' || row.status === 'SAR Filed'
-            ? 'bg-[var(--sage-2)]/15 border-[var(--sage-2)]/30 text-[var(--sage-3)]'
-            : 'bg-[var(--live)]/15 border-[var(--live)]/30 text-[var(--live)]'
-        }`}>
-          {row.status}
-        </span>
+        <StatusPill status={row.status} />
       )
     },
     {
@@ -340,52 +327,45 @@ export const CaseQueueView: React.FC = () => {
 
   return (
     <div className="w-full flex flex-col gap-6 pb-16">
-      {/* Top Scope Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-light text-[var(--text)] tracking-tight">
-              Case Triage Queue
-            </h2>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--risk-red)]/20 text-[var(--risk-red)] font-mono font-medium border border-[var(--risk-red)]/30">
-              {filteredCases.length} Active Candidates
-            </span>
-          </div>
-          <p className="text-xs text-[var(--muted)] mt-1 font-light">
-            Ranked continuously by stacked meta-learner blending risk, exposure amount, typology severity, and SLA countdown.
-          </p>
-        </div>
+      {/* Top Page Header with Controls */}
+      <PageHeader
+        title="Case Triage Queue"
+        subtitle="Ranked continuously by stacked meta-learner blending risk, exposure amount, typology severity, and SLA countdown."
+        actions={
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Table vs Kanban Toggle */}
+            <div className="flex items-center bg-white/[0.04] border border-[var(--line)] rounded-full p-1 text-xs">
+              <button
+                onClick={() => setViewMode('table')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
+                  viewMode === 'table' ? 'bg-[var(--brand-orange)] text-white font-medium shadow-sm' : 'text-[var(--muted)] hover:text-white'
+                }`}
+              >
+                <LayoutList className="w-3.5 h-3.5" />
+                <span>Table</span>
+              </button>
+              <button
+                onClick={() => setViewMode('kanban')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
+                  viewMode === 'kanban' ? 'bg-[var(--brand-orange)] text-white font-medium shadow-sm' : 'text-[var(--muted)] hover:text-white'
+                }`}
+              >
+                <KanbanIcon className="w-3.5 h-3.5" />
+                <span>Kanban</span>
+              </button>
+            </div>
 
-        {/* View Toggle & Auto-Triage */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Table vs Kanban Toggle */}
-          <div className="flex items-center bg-white/[0.03] border border-[var(--line)] rounded-full p-0.5 text-xs">
+            {/* AI Auto-Triage Queue Button */}
             <button
-              onClick={() => setViewMode('table')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${viewMode === 'table' ? 'bg-white text-darkCanvas font-medium shadow-sm' : 'text-[var(--muted)] hover:text-white'}`}
+              onClick={openAutoTriageModal}
+              className="pill-btn-primary text-xs flex items-center gap-1.5"
             >
-              <LayoutList className="w-3.5 h-3.5" />
-              <span>Table</span>
-            </button>
-            <button
-              onClick={() => setViewMode('kanban')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${viewMode === 'kanban' ? 'bg-white text-darkCanvas font-medium shadow-sm' : 'text-[var(--muted)] hover:text-white'}`}
-            >
-              <KanbanIcon className="w-3.5 h-3.5" />
-              <span>Kanban</span>
+              <Sparkles className="w-3.5 h-3.5 text-white" />
+              <span>AI Auto-Triage</span>
             </button>
           </div>
-
-          {/* AI Auto-Triage Queue Button */}
-          <button
-            onClick={openAutoTriageModal}
-            className="pill-btn-primary text-xs flex items-center gap-1.5 shadow-lg"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-black" />
-            <span>AI Auto-Triage Queue</span>
-          </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Global Filter Bar Sync */}
       <GlobalFilterBar />
@@ -399,48 +379,48 @@ export const CaseQueueView: React.FC = () => {
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
             placeholder="Ask or filter in natural language (e.g. 'structuring cases over $50k', 'mule network high risk')..."
-            className="w-full pl-11 pr-28 py-3 rounded-full bg-white/[0.02] border border-[var(--line)] focus:border-[var(--sage-2)] text-xs text-[var(--text)] placeholder-[var(--muted)] focus:outline-none transition-all"
+            className="w-full pl-11 pr-28 py-2.5 rounded-full bg-white/[0.03] border border-[var(--line)] focus:border-[var(--brand-orange)] text-xs text-[var(--text)] placeholder-[var(--muted)] focus:outline-none transition-all"
           />
           <button
             type="submit"
-            className="absolute right-2 pill-btn-secondary text-[11px] py-1.5 px-3 flex items-center gap-1"
+            className="absolute right-2 pill-btn-secondary text-[11px] py-1 px-3 flex items-center gap-1"
           >
-            <Sparkles className="w-3 h-3 text-[var(--sage-2)]" />
+            <Sparkles className="w-3 h-3 text-[var(--brand-orange)]" />
             <span>Parse Filter</span>
           </button>
         </div>
       </form>
 
       {/* Saved Views Tabs */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-        <span className="text-[10px] text-[var(--muted)] uppercase font-mono mr-2">Views:</span>
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+        <span className="text-[10px] text-[var(--muted)] uppercase font-mono mr-1">Views:</span>
         <button
           onClick={() => setSavedView('all')}
-          className={`px-3 py-1 rounded-full transition-all ${savedView === 'all' ? 'bg-white text-darkCanvas font-medium' : 'text-[var(--muted)] hover:text-white bg-white/[0.02] border border-[var(--line)]'}`}
+          className={`px-3 py-1 rounded-full transition-all ${savedView === 'all' ? 'bg-[var(--brand-orange)] text-white font-medium' : 'text-[var(--muted)] hover:text-white bg-white/[0.03] border border-[var(--line)]'}`}
         >
           All High Priority
         </button>
         <button
           onClick={() => setSavedView('structuring')}
-          className={`px-3 py-1 rounded-full transition-all ${savedView === 'structuring' ? 'bg-white text-darkCanvas font-medium' : 'text-[var(--muted)] hover:text-white bg-white/[0.02] border border-[var(--line)]'}`}
+          className={`px-3 py-1 rounded-full transition-all ${savedView === 'structuring' ? 'bg-[var(--brand-orange)] text-white font-medium' : 'text-[var(--muted)] hover:text-white bg-white/[0.03] border border-[var(--line)]'}`}
         >
           Structuring (&lt;$10k)
         </button>
         <button
           onClick={() => setSavedView('urgent_sla')}
-          className={`px-3 py-1 rounded-full transition-all ${savedView === 'urgent_sla' ? 'bg-white text-darkCanvas font-medium' : 'text-[var(--muted)] hover:text-white bg-white/[0.02] border border-[var(--line)]'}`}
+          className={`px-3 py-1 rounded-full transition-all ${savedView === 'urgent_sla' ? 'bg-[var(--brand-orange)] text-white font-medium' : 'text-[var(--muted)] hover:text-white bg-white/[0.03] border border-[var(--line)]'}`}
         >
           SLA Urgent (&lt;2h)
         </button>
         <button
           onClick={() => setSavedView('escalated')}
-          className={`px-3 py-1 rounded-full transition-all ${savedView === 'escalated' ? 'bg-white text-darkCanvas font-medium' : 'text-[var(--muted)] hover:text-white bg-white/[0.02] border border-[var(--line)]'}`}
+          className={`px-3 py-1 rounded-full transition-all ${savedView === 'escalated' ? 'bg-[var(--brand-orange)] text-white font-medium' : 'text-[var(--muted)] hover:text-white bg-white/[0.03] border border-[var(--line)]'}`}
         >
           Escalated for SAR
         </button>
         <button
           onClick={() => setSavedView('cleared')}
-          className={`px-3 py-1 rounded-full transition-all ${savedView === 'cleared' ? 'bg-white text-darkCanvas font-medium' : 'text-[var(--muted)] hover:text-white bg-white/[0.02] border border-[var(--line)]'}`}
+          className={`px-3 py-1 rounded-full transition-all ${savedView === 'cleared' ? 'bg-[var(--brand-orange)] text-white font-medium' : 'text-[var(--muted)] hover:text-white bg-white/[0.03] border border-[var(--line)]'}`}
         >
           Cleared
         </button>
@@ -453,10 +433,10 @@ export const CaseQueueView: React.FC = () => {
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
-            className="sticky top-4 z-30 w-full glass-panel px-4 py-2.5 rounded-full border border-white/20 bg-[#0B0F0D]/95 shadow-2xl flex items-center justify-between gap-3 text-xs"
+            className="sticky top-4 z-30 w-full fintech-card px-4 py-2.5 rounded-full border border-white/20 bg-[#111113]/95 shadow-2xl flex items-center justify-between gap-3 text-xs"
           >
             <div className="flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-[var(--sage-2)] text-black font-bold flex items-center justify-center text-[10px]">
+              <span className="w-5 h-5 rounded-full bg-[var(--brand-orange)] text-white font-bold flex items-center justify-center text-[10px]">
                 {selectedIds.size}
               </span>
               <span className="text-white font-medium">Cases Selected</span>
@@ -471,15 +451,15 @@ export const CaseQueueView: React.FC = () => {
               </button>
               <button
                 onClick={() => handleBulkAction('Under Review')}
-                className="pill-btn-secondary text-[11px] py-1 px-3"
+                className="pill-btn-secondary text-[11px] py-1 px-3 text-[var(--risk-yellow)] border-[var(--risk-yellow)]/30 hover:bg-[var(--risk-yellow)]/10"
               >
                 Mark Under Review
               </button>
               <button
                 onClick={() => handleBulkAction('Cleared')}
-                className="pill-btn-secondary text-[11px] py-1 px-3 text-[var(--live)] border-[var(--live)]/30 hover:bg-[var(--live)]/10"
+                className="pill-btn-secondary text-[11px] py-1 px-3 text-[var(--risk-green)] border-[var(--risk-green)]/30 hover:bg-[var(--risk-green)]/10"
               >
-                Clear as False Pos
+                Bulk Clear
               </button>
               <button
                 onClick={() => setSelectedIds(new Set())}
@@ -573,51 +553,6 @@ export const CaseQueueView: React.FC = () => {
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* Auto-Triage Confirmation Modal */}
-      {isAutoTriageModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
-          <div className="glass-panel max-w-lg w-full p-6 rounded-2xl border border-white/20 shadow-2xl bg-[#0B0F0D] flex flex-col gap-4">
-            <div className="flex items-center gap-2 pb-3 border-b border-[var(--line)]">
-              <Sparkles className="w-4 h-4 text-[var(--sage-3)]" />
-              <h3 className="text-sm font-medium text-white">AI Auto-Triage Verification</h3>
-            </div>
-
-            <p className="text-xs text-[var(--muted)] leading-relaxed">
-              {autoTriageReasoning}
-            </p>
-
-            <div className="max-h-48 overflow-y-auto divide-y divide-[var(--line)] border border-[var(--line)] rounded-xl p-2 bg-white/[0.01]">
-              {autoTriageCandidates.map(c => (
-                <div key={c.id} className="py-2 px-2 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="font-mono text-white font-medium">#{c.id}</span>
-                    <span className="text-[var(--muted)] ml-2">{c.fromCity} ➔ {c.toCity}</span>
-                  </div>
-                  <span className="font-mono text-[var(--live)] font-medium">
-                    {c.riskScore.toFixed(0)} Risk (Benign)
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                onClick={closeAutoTriageModal}
-                className="pill-btn-secondary text-xs"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmAutoTriage}
-                className="pill-btn-primary text-xs"
-              >
-                Confirm Auto-Clear ({autoTriageCandidates.length})
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

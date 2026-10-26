@@ -18,7 +18,9 @@ import {
   FileText,
   Clock,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  HelpCircle,
+  ChevronDown
 } from 'lucide-react';
 import { 
   ScatterChart, 
@@ -30,6 +32,7 @@ import {
   Cell 
 } from 'recharts';
 import { pageVariants } from '../common/MotionComponents';
+import { StatusPill } from '../common/StatusPill';
 import { formatCurrency, formatRelativeTime } from '../../utils/formatters';
 
 export const TransactionDetailView: React.FC = () => {
@@ -102,6 +105,39 @@ export const TransactionDetailView: React.FC = () => {
     recomputeCounterfactual(activeTxn.id, counterAmount, newHours);
   };
 
+  // Explainable AI Risk Breakdown state
+  const [isExplainOpen, setIsExplainOpen] = useState(false);
+  const [isExplainLoading, setIsExplainLoading] = useState(false);
+  const [explainData, setExplainData] = useState<{ summary: string; bullets: string[] } | null>(null);
+
+  const fetchExplainScore = async () => {
+    setIsExplainLoading(true);
+    try {
+      const res = await fetch('/api/ai/explain_score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          riskScore: activeTxn.riskScore,
+          typology: activeTxn.typology,
+          typologyLabel: activeTxn.typologyLabel,
+          amount: activeTxn.amount,
+          fromCity: activeTxn.fromCity,
+          toCity: activeTxn.toCity,
+          factors: activeTxn.factors,
+          features: activeTxn.features
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setExplainData(data);
+      }
+    } catch (e) {
+      console.warn('Explain score failed:', e);
+    } finally {
+      setIsExplainLoading(false);
+    }
+  };
+
   const handleRegenerateNarrative = async () => {
     setIsStreaming(true);
     setStreamedNarrative('');
@@ -110,10 +146,19 @@ export const TransactionDetailView: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          caseId: activeTxn.id,
-          riskScore: activeTxn.riskScore,
-          typology: activeTxn.typologyLabel,
-          features: activeTxn.features
+          type: 'case_narrative',
+          data: {
+            id: activeTxn.id,
+            amount: activeTxn.amount,
+            fromCountry: activeTxn.fromCountry,
+            toCountry: activeTxn.toCountry,
+            fromCity: activeTxn.fromCity,
+            toCity: activeTxn.toCity,
+            typology: activeTxn.typology,
+            typologyLabel: activeTxn.typologyLabel,
+            riskScore: activeTxn.riskScore,
+            features: activeTxn.features
+          }
         })
       });
 
@@ -123,13 +168,30 @@ export const TransactionDetailView: React.FC = () => {
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = '';
+      let accumulated = '';
+      let partialLine = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        setStreamedNarrative(buffer);
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = (partialLine + chunk).split('\n');
+        partialLine = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data:')) {
+            try {
+              const parsed = JSON.parse(trimmed.slice(5).trim());
+              if (parsed.text) {
+                accumulated += parsed.text;
+                setStreamedNarrative(accumulated);
+              }
+            } catch (e) {
+              // Ignore non-json lines
+            }
+          }
+        }
       }
     } catch (err) {
       // Graceful offline fallback narrative
@@ -214,13 +276,7 @@ export const TransactionDetailView: React.FC = () => {
               <h2 className="text-xl sm:text-2xl font-light text-[var(--text)] tracking-tight">
                 Case Investigation #{activeTxn.id}
               </h2>
-              <span className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full font-semibold border ${
-                activeTxn.status === 'New' 
-                  ? 'bg-[var(--risk-red)]/20 text-[var(--risk-red)] border-[var(--risk-red)]/30'
-                  : 'bg-[var(--sage-2)]/20 text-[var(--sage-3)] border-[var(--sage-2)]/30'
-              }`}>
-                {activeTxn.status}
-              </span>
+              <StatusPill status={activeTxn.status} />
             </div>
             <p className="text-xs text-[var(--muted)] mt-0.5 font-light">
               {activeTxn.typologyLabel} • Recorded {activeTxn.timestamp.slice(0, 16).replace('T', ' ')}
@@ -237,7 +293,7 @@ export const TransactionDetailView: React.FC = () => {
             }}
             className="pill-btn-secondary text-xs flex items-center gap-1.5"
           >
-            <Globe2 className="w-3.5 h-3.5 text-[var(--sage-3)]" />
+            <Globe2 className="w-3.5 h-3.5 text-[var(--brand-orange)]" />
             <span>Show on Globe</span>
           </button>
 
@@ -252,7 +308,7 @@ export const TransactionDetailView: React.FC = () => {
             onClick={handleGenerateSAR}
             className="pill-btn-primary text-xs flex items-center gap-1.5"
           >
-            <FileText className="w-3.5 h-3.5 text-black" />
+            <FileText className="w-3.5 h-3.5 text-white" />
             <span>Generate SAR Draft</span>
           </button>
 
@@ -273,7 +329,7 @@ export const TransactionDetailView: React.FC = () => {
           {/* Risk Dial Card with Shared Element Transition */}
           <motion.div 
             layoutId={`case-card-${activeTxn.id}`}
-            className="glass-panel p-6 flex flex-col sm:flex-row items-center justify-between gap-6 border border-[var(--line)]"
+            className="fintech-card p-6 flex flex-col sm:flex-row items-center justify-between gap-6 border border-[var(--line)]"
           >
             <div className="flex flex-col items-center justify-center relative w-44 h-44 shrink-0">
               <svg className="w-full h-full transform -rotate-90">
@@ -289,7 +345,7 @@ export const TransactionDetailView: React.FC = () => {
                   cx="88"
                   cy="88"
                   r="70"
-                  stroke={activeTxn.riskScore >= 70 ? 'var(--risk-red)' : activeTxn.riskScore >= 40 ? 'var(--risk-amber)' : 'var(--live)'}
+                  stroke={activeTxn.riskScore >= 70 ? 'var(--risk-red)' : activeTxn.riskScore >= 40 ? 'var(--risk-yellow)' : 'var(--risk-green)'}
                   strokeWidth="10"
                   strokeDasharray={440}
                   strokeDashoffset={440 - (440 * animatedScore) / 100}
@@ -311,7 +367,7 @@ export const TransactionDetailView: React.FC = () => {
             <div className="flex-1 space-y-2.5 w-full">
               <div className="flex items-center justify-between text-xs pb-2 border-b border-[var(--line)]">
                 <span className="text-[var(--muted)]">Model Architecture</span>
-                <span className="text-[var(--sage-3)] font-mono">XGBoost + IF + Autoencoder</span>
+                <span className="text-[var(--brand-orange)] font-mono">XGBoost + IF + Autoencoder</span>
               </div>
               <div className="flex items-center justify-between text-xs pb-2 border-b border-[var(--line)]">
                 <span className="text-[var(--muted)]">Suggested Action</span>
@@ -329,10 +385,10 @@ export const TransactionDetailView: React.FC = () => {
           </motion.div>
 
           {/* Entity Profile Card with Account 360 link */}
-          <div className="glass-panel p-5 border border-[var(--line)] flex flex-col gap-3">
+          <div className="fintech-card p-5 border border-[var(--line)] flex flex-col gap-3">
             <div className="flex items-center justify-between pb-2 border-b border-[var(--line)]">
               <div className="flex items-center gap-2">
-                <Building className="w-4 h-4 text-[var(--sage-2)]" />
+                <Building className="w-4 h-4 text-[var(--brand-orange)]" />
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text)]">
                   Entity & Settlement Profile
                 </h3>
@@ -350,7 +406,7 @@ export const TransactionDetailView: React.FC = () => {
                       selectAccount(activeTxn.fromAccount);
                       navigate(`/account/${activeTxn.fromAccount}`);
                     }}
-                    className="font-mono text-sm font-medium text-white hover:text-[var(--sage-2)] flex items-center gap-1 mt-0.5"
+                    className="font-mono text-sm font-medium text-white hover:text-[var(--brand-orange)] flex items-center gap-1 mt-0.5"
                   >
                     <span>{activeTxn.fromAccount}</span>
                     <ExternalLink className="w-3 h-3 opacity-60" />
@@ -371,7 +427,7 @@ export const TransactionDetailView: React.FC = () => {
                       selectAccount(activeTxn.toAccount);
                       navigate(`/account/${activeTxn.toAccount}`);
                     }}
-                    className="font-mono text-sm font-medium text-white hover:text-[var(--sage-2)] flex items-center gap-1 mt-0.5"
+                    className="font-mono text-sm font-medium text-white hover:text-[var(--brand-orange)] flex items-center gap-1 mt-0.5"
                   >
                     <span>{activeTxn.toAccount}</span>
                     <ExternalLink className="w-3 h-3 opacity-60" />
@@ -386,7 +442,7 @@ export const TransactionDetailView: React.FC = () => {
           </div>
 
           {/* SHAP Feature Contribution Bars */}
-          <div className="glass-panel p-6 flex flex-col gap-4 border border-[var(--line)]">
+          <div className="fintech-card p-6 flex flex-col gap-4 border border-[var(--line)]">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
               <div>
                 <h3 className="text-sm font-medium text-[var(--text)]">
@@ -396,7 +452,7 @@ export const TransactionDetailView: React.FC = () => {
                   Local feature contributions pushing risk score above baseline
                 </p>
               </div>
-              <span className="text-[10px] font-mono text-[var(--sage-3)] bg-[var(--sage-2)]/10 px-2 py-0.5 rounded-full border border-[var(--sage-2)]/25">
+              <span className="text-[10px] font-mono text-[var(--brand-orange)] bg-[var(--brand-orange)]/10 px-2 py-0.5 rounded-full border border-[var(--brand-orange)]/25">
                 Log-odds Attribution
               </span>
             </div>
@@ -412,7 +468,7 @@ export const TransactionDetailView: React.FC = () => {
                     </div>
                     <div className="w-full h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                       <div 
-                        className="h-full rounded-full bg-gradient-to-r from-[var(--risk-amber)] to-[var(--risk-red)] transition-all duration-700"
+                        className="h-full rounded-full bg-gradient-to-r from-[var(--risk-yellow)] to-[var(--risk-red)] transition-all duration-700"
                         style={{ width: `${percent}%` }}
                       />
                     </div>
@@ -425,11 +481,57 @@ export const TransactionDetailView: React.FC = () => {
             </div>
           </div>
 
+          {/* Explainable AI Risk Breakdown Accordion: "Why this score?" */}
+          <div className="fintech-card p-4 border border-[var(--line)] rounded-2xl">
+            <button
+              onClick={() => {
+                if (!isExplainOpen && !explainData) {
+                  fetchExplainScore();
+                }
+                setIsExplainOpen(!isExplainOpen);
+              }}
+              className="w-full flex items-center justify-between text-left group"
+            >
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 text-[var(--brand-orange)] group-hover:text-white transition-colors" />
+                <span className="text-xs font-medium text-[var(--text)] group-hover:text-white transition-colors">
+                  Why this score? (Explainable AI Breakdown)
+                </span>
+              </div>
+              <ChevronDown className={`w-4 h-4 text-[var(--muted)] transition-transform duration-200 ${isExplainOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isExplainOpen && (
+              <div className="mt-3 pt-3 border-t border-[var(--line)] text-xs space-y-2.5 animate-fadeIn">
+                {isExplainLoading ? (
+                  <div className="flex items-center gap-2 text-[var(--muted)] font-mono text-[11px] py-2">
+                    <span className="w-2 h-2 rounded-full bg-[var(--brand-orange)] animate-pulse" />
+                    <span>Synthesizing SHAP attributions into plain English...</span>
+                  </div>
+                ) : explainData ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-[var(--text)] font-light leading-relaxed">
+                      {explainData.summary}
+                    </p>
+                    <ul className="space-y-1.5 pl-1">
+                      {explainData.bullets?.map((b: string, i: number) => (
+                        <li key={i} className="flex items-start gap-2 text-[11px] text-[var(--muted)] leading-relaxed">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[var(--brand-orange)] mt-1.5 shrink-0" />
+                          <span>{b}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+
           {/* AI Narrative Card */}
-          <div className="glass-panel p-6 border border-[var(--sage-2)]/25 bg-[var(--sage-2)]/[0.02]">
+          <div className="fintech-card p-6 border border-[var(--brand-orange)]/25 bg-[var(--brand-orange)]/[0.02]">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
               <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-[var(--sage-3)]" />
+                <Sparkles className="w-4 h-4 text-[var(--brand-orange)]" />
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text)]">
                   AI Investigative Narrative
                 </h3>
@@ -437,7 +539,7 @@ export const TransactionDetailView: React.FC = () => {
               <button
                 onClick={handleRegenerateNarrative}
                 disabled={isStreaming}
-                className="text-[11px] text-[var(--sage-3)] hover:text-white font-mono underline disabled:opacity-50"
+                className="text-[11px] text-[var(--brand-orange)] hover:text-white font-mono underline disabled:opacity-50"
               >
                 {isStreaming ? 'Streaming...' : 'Re-stream Narrative'}
               </button>
@@ -449,7 +551,7 @@ export const TransactionDetailView: React.FC = () => {
 
             <div className="mt-4 pt-3 border-t border-white/[0.05] flex items-center justify-between text-[10px] text-[var(--muted)] font-mono">
               <span>Grounded solely in listed SHAP features</span>
-              <span className="text-[var(--sage-3)]">AI-generated — verify before action</span>
+              <span className="text-[var(--brand-orange)]">AI-generated — verify before action</span>
             </div>
           </div>
         </div>
@@ -457,10 +559,10 @@ export const TransactionDetailView: React.FC = () => {
         {/* Right Column: Counterfactual Simulator + Peer Cohort + Related Transactions + Sanctions + Audit Trail */}
         <div className="lg:col-span-5 flex flex-col gap-6">
           {/* Counterfactual Simulator */}
-          <div className="glass-panel p-6 flex flex-col gap-4 border border-[var(--line)]">
+          <div className="fintech-card p-6 flex flex-col gap-4 border border-[var(--line)]">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
               <div className="flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-[var(--sage-3)]" />
+                <Sliders className="w-4 h-4 text-[var(--brand-orange)]" />
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text)]">
                   Counterfactual Simulator
                 </h3>
@@ -485,7 +587,7 @@ export const TransactionDetailView: React.FC = () => {
                 step="250"
                 value={counterAmount}
                 onChange={(e) => handleAmountChange(Number(e.target.value))}
-                className="w-full accent-[var(--sage-2)] h-1.5 bg-white/[0.08] rounded-lg appearance-none cursor-pointer"
+                className="w-full accent-[var(--brand-orange)] h-1.5 bg-white/[0.08] rounded-lg appearance-none cursor-pointer"
               />
               <div className="flex justify-between text-[10px] text-[var(--muted)] font-mono">
                 <span>$1,000</span>
@@ -507,7 +609,7 @@ export const TransactionDetailView: React.FC = () => {
                 step="1"
                 value={counterSpread}
                 onChange={(e) => handleSpreadChange(Number(e.target.value))}
-                className="w-full accent-[var(--sage-2)] h-1.5 bg-white/[0.08] rounded-lg appearance-none cursor-pointer"
+                className="w-full accent-[var(--brand-orange)] h-1.5 bg-white/[0.08] rounded-lg appearance-none cursor-pointer"
               />
               <div className="flex justify-between text-[10px] text-[var(--muted)] font-mono">
                 <span>1h (Rapid smurfing)</span>
@@ -527,7 +629,7 @@ export const TransactionDetailView: React.FC = () => {
                 </div>
               </div>
               <span className={`text-xl font-mono font-bold tabular-nums ${
-                activeTxn.counterfactual?.adjustedScore >= 70 ? 'text-[var(--risk-red)]' : activeTxn.counterfactual?.adjustedScore >= 40 ? 'text-[var(--risk-amber)]' : 'text-[var(--live)]'
+                activeTxn.counterfactual?.adjustedScore >= 70 ? 'text-[var(--risk-red)]' : activeTxn.counterfactual?.adjustedScore >= 40 ? 'text-[var(--risk-yellow)]' : 'text-[var(--risk-green)]'
               }`}>
                 {activeTxn.counterfactual?.adjustedScore || activeTxn.riskScore}/100
               </span>
@@ -535,10 +637,10 @@ export const TransactionDetailView: React.FC = () => {
           </div>
 
           {/* Timeline of Related Transactions */}
-          <div className="glass-panel p-5 border border-[var(--line)] flex flex-col gap-3">
+          <div className="fintech-card p-5 border border-[var(--line)] flex flex-col gap-3">
             <div className="flex items-center justify-between pb-2 border-b border-[var(--line)]">
               <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-[var(--sage-2)]" />
+                <Clock className="w-4 h-4 text-[var(--brand-orange)]" />
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text)]">
                   Related Counterparty Timeline
                 </h3>
@@ -564,7 +666,7 @@ export const TransactionDetailView: React.FC = () => {
                     <div>
                       <div className="flex items-center gap-2 text-xs font-mono">
                         <span className="text-white font-medium">#{rt.id}</span>
-                        <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold ${rt.riskScore >= 70 ? 'bg-[var(--risk-red)]/20 text-[var(--risk-red)]' : 'bg-[var(--live)]/20 text-[var(--live)]'}`}>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold ${rt.riskScore >= 70 ? 'bg-[var(--risk-red)]/20 text-[var(--risk-red)]' : 'bg-[var(--risk-green)]/20 text-[var(--risk-green)]'}`}>
                           {rt.riskScore.toFixed(0)} Risk
                         </span>
                       </div>
@@ -583,10 +685,10 @@ export const TransactionDetailView: React.FC = () => {
           </div>
 
           {/* Peer Cohort Scatter */}
-          <div className="glass-panel p-6 flex flex-col gap-4 border border-[var(--line)]">
+          <div className="fintech-card p-6 flex flex-col gap-4 border border-[var(--line)]">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
               <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-[var(--sage-3)]" />
+                <Users className="w-4 h-4 text-[var(--brand-orange)]" />
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text)]">
                   Peer Cohort Comparison
                 </h3>
@@ -619,7 +721,7 @@ export const TransactionDetailView: React.FC = () => {
                   <Tooltip 
                     cursor={{ strokeDasharray: '3 3' }} 
                     contentStyle={{
-                      backgroundColor: 'rgba(11, 15, 13, 0.95)',
+                      backgroundColor: 'rgba(17, 17, 19, 0.95)',
                       border: '1px solid var(--line)',
                       borderRadius: '12px',
                       fontSize: '11px',
@@ -630,7 +732,7 @@ export const TransactionDetailView: React.FC = () => {
                     {(activeTxn.peerCohort?.points || []).map((entry, index) => (
                       <Cell 
                         key={`cell-${index}`} 
-                        fill={entry.isSubject ? 'var(--risk-red)' : 'var(--sage-2)'} 
+                        fill={entry.isSubject ? 'var(--risk-red)' : 'var(--brand-orange)'} 
                         r={entry.isSubject ? 7 : 3.5}
                       />
                     ))}
@@ -641,17 +743,17 @@ export const TransactionDetailView: React.FC = () => {
           </div>
 
           {/* Sanctions Panel */}
-          <div className="glass-panel p-6 flex flex-col gap-3 border border-[var(--line)]">
+          <div className="fintech-card p-6 flex flex-col gap-3 border border-[var(--line)]">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
               <div className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-[var(--sage-3)]" />
+                <Lock className="w-4 h-4 text-[var(--brand-orange)]" />
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text)]">
                   Sanctions Screening
                 </h3>
               </div>
               <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-medium ${
                 activeTxn.sanctionsCheck.passed 
-                  ? 'bg-[var(--live)]/20 text-[var(--live)] border border-[var(--live)]/30'
+                  ? 'bg-[var(--risk-green)]/20 text-[var(--risk-green)] border border-[var(--risk-green)]/30'
                   : 'bg-[var(--risk-red)]/20 text-[var(--risk-red)] border border-[var(--risk-red)]/30'
               }`}>
                 {activeTxn.sanctionsCheck.passed ? 'PASSED' : 'WATCHLIST MATCH'}
@@ -661,13 +763,13 @@ export const TransactionDetailView: React.FC = () => {
             <div className="grid grid-cols-2 gap-3 text-xs font-mono">
               <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
                 <div className="text-[var(--muted)] text-[10px]">OFAC SDN Screening</div>
-                <div className={`font-bold mt-1 ${activeTxn.sanctionsCheck.ofacMatch ? 'text-[var(--risk-red)]' : 'text-[var(--live)]'}`}>
+                <div className={`font-bold mt-1 ${activeTxn.sanctionsCheck.ofacMatch ? 'text-[var(--risk-red)]' : 'text-[var(--risk-green)]'}`}>
                   {activeTxn.sanctionsCheck.ofacMatch ? 'HIT (MATCH)' : 'CLEAN (PASS)'}
                 </div>
               </div>
               <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05]">
                 <div className="text-[var(--muted)] text-[10px]">Politically Exposed (PEP)</div>
-                <div className={`font-bold mt-1 ${activeTxn.sanctionsCheck.pepMatch ? 'text-[var(--risk-amber)]' : 'text-[var(--live)]'}`}>
+                <div className={`font-bold mt-1 ${activeTxn.sanctionsCheck.pepMatch ? 'text-[var(--risk-yellow)]' : 'text-[var(--risk-green)]'}`}>
                   {activeTxn.sanctionsCheck.pepMatch ? 'ASSOCIATION' : 'CLEAN (PASS)'}
                 </div>
               </div>
@@ -675,17 +777,17 @@ export const TransactionDetailView: React.FC = () => {
           </div>
 
           {/* Compliance Audit Trail */}
-          <div className="glass-panel p-6 flex flex-col gap-3 border border-[var(--line)]">
+          <div className="fintech-card p-6 flex flex-col gap-3 border border-[var(--line)]">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
               <div className="flex items-center gap-2">
-                <History className="w-4 h-4 text-[var(--sage-3)]" />
+                <History className="w-4 h-4 text-[var(--brand-orange)]" />
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text)]">
                   Compliance Audit Trail
                 </h3>
               </div>
               <button
                 onClick={() => setIsNoteInputOpen(!isNoteInputOpen)}
-                className="text-xs text-[var(--sage-3)] hover:text-white flex items-center gap-1 font-mono"
+                className="text-xs text-[var(--brand-orange)] hover:text-white flex items-center gap-1 font-mono"
               >
                 <Plus className="w-3 h-3" />
                 <span>Add Note</span>
@@ -722,7 +824,7 @@ export const TransactionDetailView: React.FC = () => {
               {caseAuditLogs.map((log) => (
                 <div key={log.id} className="py-2.5 text-xs font-mono">
                   <div className="flex items-center justify-between text-[10px] text-[var(--muted)]">
-                    <span className="text-[var(--sage-3)] font-medium">{log.operator}</span>
+                    <span className="text-[var(--brand-orange)] font-medium">{log.operator}</span>
                     <span>{log.timestamp.slice(11, 19)}</span>
                   </div>
                   <div className="text-[var(--text)] font-sans text-xs mt-0.5">
@@ -738,7 +840,7 @@ export const TransactionDetailView: React.FC = () => {
       {/* Floating System Toast */}
       {toastMessage && (
         <div className="fixed bottom-8 right-8 z-50 px-4 py-2.5 rounded-full bg-white text-darkCanvas text-xs font-medium shadow-2xl flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-[var(--sage-1)]" />
+          <CheckCircle2 className="w-4 h-4 text-[var(--brand-orange)]" />
           <span>{toastMessage}</span>
         </div>
       )}

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAMLStore } from '../../store/useAMLStore';
 import { pageVariants } from '../common/MotionComponents';
+import { PageHeader } from '../common/PageHeader';
 import { SANCTIONS_WATCHLIST } from '../../data/mockSeed';
 import { SanctionsEntry } from '../../types';
 
@@ -153,33 +154,23 @@ export const SanctionsView: React.FC = () => {
       className="w-full flex flex-col gap-6 pb-16"
     >
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-light text-[var(--text)] tracking-tight">
-              Sanctions, PEP & Watchlist Screening
-            </h2>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--sage-2)]/20 text-[var(--sage-2)] font-mono font-medium border border-[var(--sage-2)]/30">
-              Live OFAC/EU/UN Feeds
-            </span>
-          </div>
-          <p className="text-xs text-[var(--muted)] mt-1 font-light">
-            Algorithmic fuzzy matching across global designated national lists, Politically Exposed Persons (PEPs), and adverse media registers.
-          </p>
-        </div>
-
-        {/* Certificate Export Button */}
-        <button
-          onClick={handleExportAuditCertificate}
-          className="pill-btn-secondary text-xs flex items-center gap-1.5 self-start sm:self-auto"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Export Clearance Certificate</span>
-        </button>
-      </div>
+      <PageHeader
+        title="Sanctions, PEP & Watchlist Screening"
+        subtitle="Algorithmic fuzzy matching across global designated national lists, Politically Exposed Persons (PEPs), and adverse media registers."
+        actions={
+          <button
+            onClick={handleExportAuditCertificate}
+            className="pill-btn-secondary text-xs flex items-center gap-1.5"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export Clearance Certificate</span>
+          </button>
+        }
+        showPeriodPicker={false}
+      />
 
       {/* Manual Screening Test Bar */}
-      <div className="glass-panel p-6 border border-[var(--line)]">
+      <div className="fintech-card p-6 border border-[var(--line)]">
         <h3 className="text-sm font-medium text-white mb-1">
           Instant Algorithmic Entity Screening
         </h3>
@@ -195,7 +186,7 @@ export const SanctionsView: React.FC = () => {
               value={screeningInput}
               onChange={(e) => setScreeningInput(e.target.value)}
               placeholder="e.g. Valeriy Mikhailov, Trans-Balkan Petrochemical, Ocean Wanderer..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-full glass-panel bg-transparent border border-[var(--line)] text-xs text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:border-[var(--sage-2)] font-mono"
+              className="w-full pl-10 pr-4 py-2.5 rounded-full fintech-card bg-transparent border border-[var(--line)] text-xs text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:border-[var(--brand-orange)] font-mono"
             />
           </div>
           <button
@@ -261,7 +252,7 @@ export const SanctionsView: React.FC = () => {
       </div>
 
       {/* Database Search & List Table */}
-      <div className="glass-panel overflow-hidden border border-[var(--line)]">
+      <div className="fintech-card overflow-hidden border border-[var(--line)]">
         <div className="p-4 border-b border-[var(--line)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h3 className="text-sm font-medium text-white">
@@ -278,19 +269,19 @@ export const SanctionsView: React.FC = () => {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search watchlist..."
-              className="px-3 py-1.5 rounded-full glass-panel bg-transparent border border-[var(--line)] text-xs text-[var(--text)] placeholder-[var(--muted)] focus:outline-none"
+              className="px-3 py-1.5 rounded-full fintech-card bg-transparent border border-[var(--line)] text-xs text-[var(--text)] placeholder-[var(--muted)] focus:outline-none focus:border-[var(--brand-orange)]"
             />
 
             <select
               value={selectedList}
               onChange={(e) => setSelectedList(e.target.value)}
-              className="glass-panel px-3 py-1.5 text-xs text-[var(--text)] bg-transparent border border-[var(--line)] rounded-full focus:outline-none cursor-pointer"
+              className="px-3 py-1.5 text-xs text-[var(--text)] bg-[#141416] border border-[var(--line)] rounded-full focus:outline-none cursor-pointer"
             >
-              <option value="all" className="bg-[#0B0F0D]">All Lists</option>
-              <option value="OFAC SDN" className="bg-[#0B0F0D]">OFAC SDN (US)</option>
-              <option value="PEP Global" className="bg-[#0B0F0D]">PEP Global</option>
-              <option value="EU Consolidated" className="bg-[#0B0F0D]">EU Consolidated</option>
-              <option value="UN Security Council" className="bg-[#0B0F0D]">UN Security Council</option>
+              <option value="all" className="bg-[#141416]">All Lists</option>
+              <option value="OFAC SDN" className="bg-[#141416]">OFAC SDN (US)</option>
+              <option value="PEP Global" className="bg-[#141416]">PEP Global</option>
+              <option value="EU Consolidated" className="bg-[#141416]">EU Consolidated</option>
+              <option value="UN Security Council" className="bg-[#141416]">UN Security Council</option>
             </select>
           </div>
         </div>
@@ -318,7 +309,7 @@ export const SanctionsView: React.FC = () => {
                     </div>
                   </td>
                   <td className="py-3 px-4 font-mono text-[var(--muted)]">{entry.entityType}</td>
-                  <td className="py-3 px-4 font-mono text-[var(--sage-3)] font-semibold">{entry.list}</td>
+                  <td className="py-3 px-4 font-mono text-[var(--brand-orange)] font-semibold">{entry.list}</td>
                   <td className="py-3 px-4 font-mono text-[var(--muted)]">{entry.program}</td>
                   <td className="py-3 px-4 text-[var(--text)]">{entry.country}</td>
                   <td className="py-3 px-4 text-[var(--muted)] font-mono text-[10px]">
@@ -344,7 +335,7 @@ export const SanctionsView: React.FC = () => {
       </div>
 
       {/* Real-Time Automated Stream Screening Log */}
-      <div className="glass-panel overflow-hidden border border-[var(--line)]">
+      <div className="fintech-card overflow-hidden border border-[var(--line)]">
         <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
           <div>
             <h3 className="text-sm font-medium text-white">
@@ -355,7 +346,7 @@ export const SanctionsView: React.FC = () => {
             </p>
           </div>
           <span className="label-small flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-[var(--live)] animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--risk-green)] animate-pulse" />
             <span>0.8ms Latency</span>
           </span>
         </div>

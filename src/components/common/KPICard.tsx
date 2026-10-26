@@ -68,7 +68,7 @@ export const KPICard: React.FC<KPICardProps> = ({
       role="button"
       tabIndex={0}
       title={`Click to view corresponding queue cases (${displayLabel})`}
-      className="glass-panel p-4 flex flex-col justify-between cursor-pointer hover:border-[var(--sage-2)]/40 hover:bg-white/[0.04] transition-all group border border-[var(--line)] relative overflow-hidden"
+      className="fintech-card p-4 flex flex-col justify-between cursor-pointer hover:border-[var(--brand-orange)]/40 hover:bg-white/[0.04] transition-all group relative overflow-hidden"
     >
       {/* Top Label & Icon */}
       <div className="flex items-center justify-between pb-2">
@@ -99,7 +99,7 @@ export const KPICard: React.FC<KPICardProps> = ({
           <svg width={width} height={height} className="overflow-visible">
             <polyline
               fill="none"
-              stroke="var(--sage-2)"
+              stroke="var(--brand-orange)"
               strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"

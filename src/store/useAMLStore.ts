@@ -73,6 +73,12 @@ interface AMLStoreState {
   isAutoTriageModalOpen: boolean;
   autoTriageReasoning: string;
 
+  // Command Palette State
+  isCommandPaletteOpen: boolean;
+  openCommandPalette: () => void;
+  closeCommandPalette: () => void;
+  toggleCommandPalette: () => void;
+
   // AI Situation Brief
   situationBrief: string;
   isBriefGenerating: boolean;
@@ -235,6 +241,11 @@ export const useAMLStore = create<AMLStoreState>((set, get) => ({
   autoTriageCandidates: [],
   isAutoTriageModalOpen: false,
   autoTriageReasoning: '',
+
+  isCommandPaletteOpen: false,
+  openCommandPalette: () => set({ isCommandPaletteOpen: true }),
+  closeCommandPalette: () => set({ isCommandPaletteOpen: false }),
+  toggleCommandPalette: () => set((state) => ({ isCommandPaletteOpen: !state.isCommandPaletteOpen })),
 
   situationBrief: "Surveillance network actively monitoring live ingestion at 1,420 tx/min across 12 global clearing banks. In the current surveillance window, 14 high-priority anomalies have been isolated, dominated by 4 sub-$10k structuring clusters and 2 closed-loop cyclic routing rings. The stacked meta-learner maintains high discriminative power with 0.83 PR-AUC. Compliance posture is stable with human-in-the-loop triage SLA averaging 1.4 minutes per flag.",
   isBriefGenerating: false,

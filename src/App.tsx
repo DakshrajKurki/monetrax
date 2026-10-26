@@ -1,10 +1,14 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { pageVariants } from './components/common/MotionComponents';
 import { useLiveStreamEngine } from './hooks/useLiveStreamEngine';
-import { HeaderNav } from './components/layout/HeaderNav';
-import { IntegrationsStrip } from './components/layout/IntegrationsStrip';
+import { useAMLStore } from './store/useAMLStore';
+import { SidebarNav } from './components/layout/SidebarNav';
+import { TopBar } from './components/layout/TopBar';
+import { CommandPalette } from './components/common/CommandPalette';
+import { AutoTriageModal } from './components/common/AutoTriageModal';
+import { ToastContainer } from './components/common/ToastContainer';
 import { HeroCommandView } from './components/views/HeroCommandView';
 import { CaseQueueView } from './components/views/CaseQueueView';
 import { TransactionDetailView } from './components/views/TransactionDetailView';
@@ -26,12 +30,17 @@ export default function App() {
 
   const location = useLocation();
   const spotlightRef = useRef<HTMLDivElement>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // 1. CURSOR SPOTLIGHT EFFECT: Interactive glow following pointer across all pages
+  // Global command palette state from store
+  const isCommandPaletteOpen = useAMLStore((s) => s.isCommandPaletteOpen);
+  const openCommandPalette = useAMLStore((s) => s.openCommandPalette);
+  const closeCommandPalette = useAMLStore((s) => s.closeCommandPalette);
+
+  // 1. CURSOR SPOTLIGHT EFFECT: Interactive warm orange glow following pointer
   useEffect(() => {
     let rafId: number | null = null;
-    let targetX = window.innerWidth / 2;
-    let targetY = window.innerHeight / 2;
 
     const handleMouseMove = (e: MouseEvent) => {
       const targetX = e.clientX;
@@ -54,16 +63,29 @@ export default function App() {
     };
   }, []);
 
+  // Global Cmd+K / Ctrl+K keyboard shortcut listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        openCommandPalette();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [openCommandPalette]);
+
+  // Scroll to top on pathname change
   useEffect(() => {
     window.scrollTo(0, 0);
-    const scrollContainers = document.querySelectorAll('.overflow-y-auto');
-    scrollContainers.forEach((el) => {
-      el.scrollTop = 0;
-    });
+    const mainContent = document.getElementById('main-content-area');
+    if (mainContent) {
+      mainContent.scrollTop = 0;
+    }
   }, [location.pathname]);
 
   return (
-    <div className="relative min-h-screen w-full bg-[var(--bg)] text-[var(--text)] flex flex-col justify-between p-4 sm:p-6 lg:p-8 font-sans">
+    <div className="relative min-h-screen w-full bg-[#0B0B0C] text-[#F5F5F6] flex font-sans overflow-x-hidden">
       {/* Interactive Cursor Spotlight Glow (fixed full-viewport, pointer-events: none) */}
       <div ref={spotlightRef} className="cursor-spotlight" aria-hidden="true" />
 
@@ -72,19 +94,27 @@ export default function App() {
       <div className="ambient-streak left-[75%] h-44" style={{ animationDelay: '3s' }} />
 
       {/* =========================================================================
-          MAIN ROUNDED GLASS STAGE FRAME (Exact Reference Architecture)
+          LEFT SIDEBAR (240px desktop, collapsible to 72px icon rail, drawer on mobile)
           ========================================================================= */}
-      <div className="stage-frame w-full max-w-[1440px] mx-auto min-h-[820px] p-4 sm:p-8 flex flex-col relative">
-        {/* Soft Blurred Drifting Sage Orbs Behind Content (pointer-events-none) */}
-        <div className="sage-glow-highlight" />
-        <div className="sage-glow-1 top-24 right-12" />
-        <div className="sage-glow-2 top-72 right-48" />
+      <SidebarNav
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+        isMobileOpen={isMobileMenuOpen}
+        onCloseMobile={() => setIsMobileMenuOpen(false)}
+      />
 
-        {/* Top Header Navigation (inside top of stage) */}
-        <HeaderNav />
+      {/* =========================================================================
+          MAIN CONTENT AREA (TopBar + Page Content View)
+          ========================================================================= */}
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+        {/* Top bar inside content area */}
+        <TopBar onOpenMobileMenu={() => setIsMobileMenuOpen(true)} />
 
-        {/* Dynamic Route Content with Framer Motion Page Transitions */}
-        <div className="relative z-10 w-full flex-1 flex flex-col pt-4">
+        {/* Scrollable Page Content Container */}
+        <main
+          id="main-content-area"
+          className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6 scrollbar-thin relative z-10"
+        >
           <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}
@@ -92,7 +122,7 @@ export default function App() {
               initial="initial"
               animate="animate"
               exit="exit"
-              className="w-full flex-1 flex flex-col"
+              className="w-full"
             >
               <Routes location={location}>
                 <Route path="/" element={<HeroCommandView />} />
@@ -113,13 +143,15 @@ export default function App() {
               </Routes>
             </motion.div>
           </AnimatePresence>
-        </div>
+        </main>
       </div>
 
-      {/* Row of Invented Generic Names Below Stage */}
-      <IntegrationsStrip />
-
-      {/* Persistent Floating AI Assistant ("Risky") at Bottom Right */}
+      {/* =========================================================================
+          GLOBAL OVERLAYS: Command Palette, Auto-Triage Modal, Toasts, AI Assistant
+          ========================================================================= */}
+      <CommandPalette isOpen={isCommandPaletteOpen} onClose={closeCommandPalette} />
+      <AutoTriageModal />
+      <ToastContainer />
       <RiskyAssistant />
     </div>
   );

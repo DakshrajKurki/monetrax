@@ -23,7 +23,7 @@ export const ChartCard: React.FC<ChartCardProps> = ({
 }) => {
   const caption = dataWindow || dataWindowCaption || 'last 24 hours, simulated surveillance data';
   return (
-    <div className={`glass-panel p-5 border border-[var(--line)] flex flex-col justify-between ${className}`}>
+    <div className={`fintech-card p-5 flex flex-col justify-between ${className}`}>
       {/* Header */}
       <div className="flex items-start justify-between gap-4 pb-3">
         <div>
@@ -54,7 +54,7 @@ export const ChartCard: React.FC<ChartCardProps> = ({
       {/* Mandatory Caption footer stating data window */}
       <div className="pt-3 border-t border-[var(--line)] flex items-center justify-between text-[10px] text-[var(--muted)] font-mono">
         <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-[var(--sage-2)] opacity-70" />
+          <span className="w-1.5 h-1.5 rounded-full bg-[var(--brand-orange)] opacity-70" />
           <span>Window: {caption}</span>
         </div>
         <span className="text-[9px] uppercase tracking-wider text-[var(--muted)] opacity-60">Verified Model Stream</span>

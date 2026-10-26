@@ -30,6 +30,7 @@ import {
 } from 'recharts';
 import { useAMLStore } from '../../store/useAMLStore';
 import { pageVariants } from '../common/MotionComponents';
+import { PageHeader } from '../common/PageHeader';
 import { ChartCard } from '../common/ChartCard';
 import { KPICard } from '../common/KPICard';
 import { formatCurrency, formatPercentage } from '../../utils/formatters';
@@ -118,29 +119,19 @@ export const AnalyticsView: React.FC = () => {
       className="w-full flex flex-col gap-6 pb-16"
     >
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-light text-[var(--text)] tracking-tight">
-              Operational Analytics & Compliance Reporting
-            </h2>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--sage-2)]/20 text-[var(--sage-2)] font-mono font-medium border border-[var(--sage-2)]/30">
-              30-Day Aggregation
-            </span>
-          </div>
-          <p className="text-xs text-[var(--muted)] mt-1 font-light">
-            Comprehensive false-positive reduction trends, SLA compliance metrics, and analyst throughput telemetry.
-          </p>
-        </div>
-
-        <button
-          onClick={handleExportExecutiveReport}
-          className="pill-btn-primary text-xs flex items-center gap-1.5 self-start sm:self-auto"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Export Executive Summary</span>
-        </button>
-      </div>
+      <PageHeader
+        title="Operational Analytics & Compliance Reporting"
+        subtitle="Comprehensive false-positive reduction trends, SLA compliance metrics, and analyst throughput telemetry."
+        actions={
+          <button
+            onClick={handleExportExecutiveReport}
+            className="pill-btn-primary text-xs flex items-center gap-1.5"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export Executive Summary</span>
+          </button>
+        }
+      />
 
       {/* KPI Cards Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -190,8 +181,8 @@ export const AnalyticsView: React.FC = () => {
               <AreaChart data={fprTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="fprGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--sage-2)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--sage-2)" stopOpacity={0} />
+                    <stop offset="5%" stopColor="var(--brand-orange)" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="var(--brand-orange)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.05)" />
@@ -199,14 +190,14 @@ export const AnalyticsView: React.FC = () => {
                 <YAxis domain={[0, 30]} stroke="var(--muted)" fontSize={10} tickLine={false} tickFormatter={(v) => `${v}%`} />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#0B0F0D',
-                    borderColor: 'var(--line)',
+                    backgroundColor: '#111113',
+                    borderColor: 'var(--card-border)',
                     borderRadius: '12px',
                     fontSize: '11px',
                     fontFamily: 'monospace'
                   }}
                 />
-                <Area type="monotone" dataKey="fpr" stroke="var(--sage-2)" fill="url(#fprGrad)" strokeWidth={2} name="Model FPR (%)" />
+                <Area type="monotone" dataKey="fpr" stroke="var(--brand-orange)" fill="url(#fprGrad)" strokeWidth={2} name="Model FPR (%)" />
                 <Line type="monotone" dataKey="target" stroke="var(--risk-red)" strokeDasharray="4 4" strokeWidth={1.5} dot={false} name="Target Threshold" />
               </AreaChart>
             </ResponsiveContainer>
@@ -214,7 +205,7 @@ export const AnalyticsView: React.FC = () => {
         </ChartCard>
 
         {/* Alert Resolution Funnel */}
-        <div className="glass-panel p-6 border border-[var(--line)] flex flex-col justify-between">
+        <div className="fintech-card p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
               <div>
@@ -233,11 +224,11 @@ export const AnalyticsView: React.FC = () => {
                 <div key={i} className="p-3 rounded-xl bg-white/[0.02] border border-[var(--line)]">
                   <div className="flex justify-between items-center text-xs">
                     <span className="font-medium text-white">{f.stage}</span>
-                    <span className="font-mono font-bold text-[var(--sage-3)]">{f.count.toLocaleString()} cases</span>
+                    <span className="font-mono font-bold text-[var(--brand-orange)]">{f.count.toLocaleString()} cases</span>
                   </div>
                   <div className="w-full h-1.5 bg-white/10 rounded-full mt-2 overflow-hidden">
                     <div
-                      className="bg-[var(--sage-2)] h-full"
+                      className="bg-gradient-to-r from-[var(--brand-orange)] to-[#FF4D1A] h-full"
                       style={{ width: f.pct }}
                     />
                   </div>
@@ -254,7 +245,7 @@ export const AnalyticsView: React.FC = () => {
       </div>
 
       {/* Compliance Analyst Workload Table */}
-      <div className="glass-panel overflow-hidden border border-[var(--line)]">
+      <div className="fintech-card overflow-hidden">
         <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
           <div>
             <h3 className="text-sm font-medium text-white">
@@ -293,7 +284,7 @@ export const AnalyticsView: React.FC = () => {
                     </div>
                   </td>
                   <td className="py-3 px-4 font-mono font-bold text-white">{a.active} cases</td>
-                  <td className="py-3 px-4 font-mono text-[var(--sage-3)]">{a.closed} cleared</td>
+                  <td className="py-3 px-4 font-mono text-[var(--brand-orange)]">{a.closed} cleared</td>
                   <td className="py-3 px-4 font-mono">{a.avgTimeMin} min/case</td>
                   <td className="py-3 px-4">
                     <span className="px-2 py-0.5 rounded text-[10px] bg-[var(--live)]/20 text-[var(--live)] font-mono font-bold">
@@ -311,7 +302,7 @@ export const AnalyticsView: React.FC = () => {
       </div>
 
       {/* Top Cross-Border Corridor Volumes */}
-      <div className="glass-panel overflow-hidden border border-[var(--line)]">
+      <div className="fintech-card overflow-hidden">
         <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
           <div>
             <h3 className="text-sm font-medium text-white">

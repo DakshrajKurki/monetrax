@@ -35,128 +35,179 @@ function streamTextToResponse(res, fullText, delayMs = 18) {
     }
   }, delayMs);
 
-  reqCloseHandler(res, interval);
-}
-
-function reqCloseHandler(res, interval) {
   res.on('close', () => {
     clearInterval(interval);
   });
 }
 
-// Fallback high-fidelity deterministic generation
-function generateFallbackNarrative(data) {
-  const { typology, riskScore, features, amount, fromCountry, toCountry } = data;
-  const score = riskScore || 75;
-  const typ = typology || 'Suspicious Pattern';
+// -----------------------------------------------------------------------------
+// Fallback Generators (High-Fidelity Offline AML Logic)
+// -----------------------------------------------------------------------------
 
-  if (typology === 'structuring') {
-    return `Transaction exhibits anomalous smurfing behavior with high structuring_score (${features?.structuring_score || 0.94}). Multiple sequential transfers just beneath the $10,000 Bank Secrecy Act reporting threshold were routed within a tight 4-hour temporal window. Contributing flow imbalance of ${features?.flow_imbalance || 0.88} and rapid liquidation indicate deliberate avoidance of Currency Transaction Reports (CTR). Recommend immediate escalation to FinCEN SAR filing.`;
+function generateFallbackNarrative(data = {}) {
+  const { typology, typologyLabel, riskScore, features, amount, fromCountry, toCountry, fromCity, toCity } = data;
+  const score = riskScore !== undefined ? Number(riskScore) : 78;
+  const typ = typologyLabel || typology || 'Suspicious Pattern';
+  const amtFormatted = amount ? Number(amount).toLocaleString() : '9,450';
+  const corridor = fromCity && toCity ? `${fromCity} (${fromCountry || 'Origin'}) ➔ ${toCity} (${toCountry || 'Dest'})` : `${fromCountry || 'Origin'} to ${toCountry || 'Destination'}`;
+  const f = features || {};
+  const zScore = f.peer_cohort_zscore !== undefined ? f.peer_cohort_zscore : 3.4;
+
+  if (typology === 'structuring' || String(typ).toLowerCase().includes('structuring')) {
+    const structScore = f.structuring_score !== undefined ? f.structuring_score : 0.94;
+    return `Transaction #${data.id || 'TXN-94021'} ($${amtFormatted}) along corridor ${corridor} exhibits anomalous smurfing behavior with high structuring_score (${structScore}). Multiple sequential transfers just beneath the $10,000 CTR reporting threshold were executed within a 4-hour temporal window. Contributing flow imbalance of ${f.flow_imbalance || 0.88} and velocity z-score of +${zScore} indicate deliberate avoidance of Currency Transaction Reports. Immediate FinCEN SAR filing recommended.`;
   }
-  if (typology === 'cyclic_flow') {
-    return `Automated graph traversal detected closed cyclic laundering topology (A → B → C → A) with cyclic_flow_score (${features?.cyclic_flow_score || 0.92}). Capital of $${amount?.toLocaleString() || '48,500'} looped across layered accounts over 6 hours with a 1.8% decrement at each intermediary hop, consistent with laundering layering fees. Peer cohort velocity z-score is +${features?.peer_cohort_zscore || 3.4} standard deviations above baseline. Immediate freeze of intermediary node accounts advised.`;
+  if (typology === 'cyclic_flow' || String(typ).toLowerCase().includes('cyclic') || String(typ).toLowerCase().includes('cycle')) {
+    const cycleScore = f.cyclic_flow_score !== undefined ? f.cyclic_flow_score : 0.92;
+    return `Automated graph surveillance detected closed cyclic layering topology (A → B → C → A) with cyclic_flow_score of ${cycleScore}. Capital totaling $${amtFormatted} was rapidly routed across intermediary accounts in ${corridor} with an average 1.8% attrition per hop, characteristic of money laundering wash-trading fees. Velocity z-score is +${zScore} standard deviations above peer baseline. Immediate administrative freeze of intermediary nodes advised.`;
   }
-  if (typology === 'mule_fan') {
-    return `High-density mule fan-in / fan-out convergence detected with from_count_24h of ${features?.from_count_24h || 12} distinct retail accounts. Incoming funds converged into this intermediary hub before being rapidly dispersed to offshore cryptocurrency on-ramps within 42 minutes. Benford's law deviation of ${features?.benford_deviation || 0.79} reinforces synthetic routing. Immediate compliance block recommended.`;
+  if (typology === 'mule_fan' || String(typ).toLowerCase().includes('mule')) {
+    const fanCount = f.from_count_24h || 12;
+    return `Surveillance network detected high-density mule fan-in / fan-out convergence with ${fanCount} distinct originating retail accounts converging into this intermediary clearing hub. The aggregate balance of $${amtFormatted} routed through ${corridor} within 42 minutes, exhibiting a Benford's law deviation index of ${f.benford_deviation || 0.79}. Immediate compliance hold and counterparty account freeze recommended.`;
   }
-  return `Autonomous model ensemble fused XGBoost and Autoencoder anomaly detectors yielding an elevated composite risk score of ${score.toFixed(1)}/100. Key drivers include abnormal peer cohort divergence (z-score ${features?.peer_cohort_zscore || '+2.8'}) and high volume velocity relative to historical baseline. Transaction indicators are consistent with obfuscated capital movement between ${fromCountry || 'origin'} and ${toCountry || 'destination'}. Analyst review and enhanced customer due diligence (EDD) recommended.`;
+
+  return `Autonomous model ensemble fused XGBoost and Autoencoder anomaly detectors yielding an elevated composite risk score of ${score.toFixed(1)}/100 for $${amtFormatted} routed along ${corridor}. Key drivers include abnormal peer cohort divergence (z-score +${zScore}) and abnormal liquidation velocity. Indicators are consistent with obfuscated capital flight; analyst escalation and enhanced due diligence (EDD) recommended.`;
 }
 
-function generateFallbackSituationBrief(stats) {
-  const flagged = stats?.flaggedCount || 14;
-  const volume = stats?.totalVolumeFormatted || '$4.8M';
-  const structuring = stats?.structuringCount || 4;
-  const cycles = stats?.cycleCount || 2;
+function generateFallbackSAR(data = {}) {
+  const { id = 'TXN-94021', amount = 9450, typologyLabel = 'Structuring (<$10k)', riskScore = 84, fromCity = 'London', toCity = 'Zurich', fromCountry = 'GB', toCountry = 'CH', fromAccount = 'ACCT-GB-4019', toAccount = 'ACCT-CH-8821', features = {} } = data;
+  const amtFormatted = Number(amount).toLocaleString();
+  const dateStr = new Date().toISOString().slice(0, 10);
 
-  return `Surveillance network actively monitoring live ingestion at 1,420 tx/min across global settlement corridors. In the current surveillance window, ${flagged} high-priority anomalies have been isolated, dominated by ${structuring} sub-$10k structuring clusters and ${cycles} closed-loop cyclic routing rings. The stacked meta-learner maintains high discriminative power with 0.83 PR-AUC. Compliance posture is stable with human-in-the-loop triage SLA averaging 1.4 minutes per flag.`;
+  return `PART I: SUMMARY OF SUSPICIOUS ACTIVITY
+On ${dateStr}, Monetrax automated surveillance isolated suspicious transaction #${id} totaling $${amtFormatted} USD originating from Account ${fromAccount} (${fromCity}, ${fromCountry}) to Beneficiary Account ${toAccount} (${toCity}, ${toCountry}). The transaction triggered critical surveillance thresholds with a composite Unified Risk Score of ${Number(riskScore).toFixed(1)}/100, characterized primarily as ${typologyLabel}.
+
+PART II: TRANSACTION CHRONOLOGY & FINANCIAL PATTERNS
+During the 24-hour monitoring window ending ${dateStr}, the subject account initiated multiple structured transfers intentionally calibrated below the $10,000 Currency Transaction Reporting (CTR) threshold pursuant to 31 U.S.C. 5313. Specifically, sequential transfers were routed across cross-border settlement channels with an inter-transaction velocity z-score of +${features.peer_cohort_zscore || '3.4'} standard deviations above peer cohort baseline, exhibiting near-immediate offshore liquidation.
+
+PART III: TYPOLOGY ANALYSIS & EVIDENCE OF ILLICIT INTENT
+The observed financial topology displays statistical markers strongly indicative of deliberate capital smurfing and layering. Algorithmic analysis confirmed a structuring coefficient of ${features.structuring_score || '0.94'} and flow imbalance ratio of ${features.flow_imbalance || '0.88'}. The absence of legitimate commercial or documented economic purpose between originating and receiving counterparties reinforces the determination of synthetic routing designed to evade regulatory scrutiny.
+
+PART IV: INSTITUTIONAL ACTIONS TAKEN & LAW ENFORCEMENT RECOMMENDATION
+Monetrax Compliance has placed an administrative risk hold on subsequent outbound disbursements from Account ${fromAccount} and escalated counterparty ${toAccount} to the Global Watchlist Surveillance queue. It is recommended that this suspicious activity report (SAR) be formally submitted to FinCEN and made available to relevant law enforcement authorities for further investigation into possible financial structuring and illicit capital flight.`;
 }
 
-function generateFallbackRiskyReply(message, screen, selectedCase) {
+function generateFallbackExplainScore(data = {}) {
+  const { riskScore = 84, typologyLabel = 'Structuring', factors = [], features = {}, amount = 9450 } = data;
+  const f = features || {};
+  const score = Number(riskScore).toFixed(1);
+
+  return {
+    summary: `Case received an elevated risk score of ${score}/100 based on extreme deviations in transaction timing, amount threshold proximity, and network flow imbalance.`,
+    bullets: [
+      `Threshold Proximity (Structuring Score: ${f.structuring_score || 0.94}): The transaction amount of $${Number(amount).toLocaleString()} sits just 5.5% below the mandatory $10,000 CTR reporting threshold, a statistical anomaly present in only 0.4% of legitimate volume.`,
+      `Peer Velocity Drift (Z-Score: +${f.peer_cohort_zscore || 3.4}σ): Account transfer velocity is 3.4 standard deviations faster than typical retail accounts in this corridor, indicating coordinated smurfing.`,
+      `Flow Imbalance Ratio (${f.flow_imbalance || 0.88}): Over 88% of incoming funds were liquidated within 4 hours, leaving minimal resting balance and suggesting intermediary pass-through routing.`
+    ]
+  };
+}
+
+function generateFallbackRiskyReply(message = '', screen = '/', selectedCase = null, history = []) {
   const msgLower = message.toLowerCase();
-  
-  if (msgLower.includes('auto-triage') || msgLower.includes('triage')) {
+
+  // Multi-turn context check
+  const lastUserMsg = history.length > 0 ? history[history.length - 1]?.text?.toLowerCase() || '' : '';
+
+  if (msgLower.includes('auto-triage') || msgLower.includes('triage') || msgLower.includes('false positive')) {
     return {
-      text: "I analyzed 14 pending cases in the queue against our 0.83 PR-AUC model. I identified 3 alerts with low feature significance (structuring < 0.2, peer z-score < 1.0) that can be safely marked as likely false positives. Would you like me to auto-clear these 3 cases?",
+      text: "I analyzed 14 pending cases in the active queue against our 0.83 PR-AUC meta-learner. I isolated 3 low-signal alerts where structuring scores are under 0.25 and peer z-score velocity is within normal range (z < 1.0). Would you like me to open the Auto-Triage verification modal to review and clear them?",
       toolCall: {
         name: 'run_auto_triage',
-        arguments: { casesToClear: 3, requiresConfirmation: true }
+        arguments: { casesToClear: 3 }
       },
-      sources: ['PR-AUC 0.83 meta-learner', 'Isolation Forest threshold <= 35', 'Queue snapshot (14 cases)']
+      sources: ['PR-AUC 0.83 Meta-Learner', 'Isolation Forest threshold <= 35', 'Queue Snapshot (14 cases)']
     };
   }
 
-  if (msgLower.includes('sar') || msgLower.includes('report') || msgLower.includes('fincen')) {
+  if (msgLower.includes('sar') || msgLower.includes('report') || msgLower.includes('fincen') || msgLower.includes('draft')) {
     const caseId = selectedCase?.id || 'TXN-94021';
     return {
-      text: `I have compiled the regulatory draft for Case #${caseId}. The narrative synthesizes the primary SHAP indicators, including the high structuring score (${selectedCase?.features?.structuring_score || 0.94}) and transaction velocity. You can review and export the formatted SAR in the Investigation workspace.`,
+      text: `Drafting FinCEN Form 111 SAR narrative for Case #${caseId}. I've synthesized the primary SHAP feature weights (structuring score ${selectedCase?.features?.structuring_score || 0.94}, velocity z-score +${selectedCase?.features?.peer_cohort_zscore || 3.4}) and the cross-border corridor into a formal 4-part regulatory draft. Navigating to the SAR Filing Center.`,
       toolCall: {
         name: 'generate_sar',
         arguments: { caseId }
       },
-      sources: ['FinCEN SAR XML Schema v2.0', `Case #${caseId} Audit Trail`, 'SHAP Feature Weights']
+      sources: ['FinCEN SAR XML Schema v2.0', `Case #${caseId} Audit Trail`, 'SHAP Feature Attributions']
     };
   }
 
-  if (msgLower.includes('globe') || msgLower.includes('map') || msgLower.includes('fly') || msgLower.includes('location')) {
+  if (msgLower.includes('globe') || msgLower.includes('fly') || msgLower.includes('map') || msgLower.includes('location') || msgLower.includes('zurich') || msgLower.includes('corridor')) {
     const caseId = selectedCase?.id || 'TXN-94021';
+    const city = selectedCase?.toCity || 'Zurich';
     return {
-      text: `Focusing camera on the geographic corridor for ${selectedCase ? selectedCase.fromCity + ' → ' + selectedCase.toCity : 'Case #' + caseId}. Initiating 3D trajectory visualization with active origin-to-destination flow vectors.`,
+      text: `Targeting camera trajectory and initiating fly-to dive for ${city} corridor (${selectedCase ? selectedCase.fromCity + ' ➔ ' + city : 'Case #' + caseId}). The animated tracking marker is tracing the fund transit path to the destination.`,
       toolCall: {
         name: 'fly_to_location',
-        arguments: { caseId, city: selectedCase?.toCity || 'Zurich' }
+        arguments: { caseId, city }
       },
-      sources: ['Corridor Geolocation Index', '3D Arc Trajectory Engine']
+      sources: ['3D Arc Trajectory Engine', 'Geospatial Geodesic Coordinates', `Corridor: ${city}`]
     };
   }
 
-  if (msgLower.includes('account') || msgLower.includes('entity') || msgLower.includes('counterparty')) {
-    const acctId = msgLower.match(/acct-[a-z0-9-]+/i)?.[0]?.toUpperCase() || selectedCase?.fromAccount || 'ACCT-JPMC-100';
+  if (msgLower.includes('account') || msgLower.includes('entity') || msgLower.includes('counterparty') || msgLower.includes('profile')) {
+    const acctMatch = message.match(/acct-[a-z0-9-]+/i)?.[0]?.toUpperCase() || selectedCase?.fromAccount || 'ACCT-JPMC-100';
     return {
-      text: `Opening 360-degree risk profile for ${acctId}. Reviewing baseline velocity drift, direct counterparties, and linked suspicious alerts.`,
+      text: `Opening 360-degree risk dossier for ${acctMatch}. Examining entity counterparties, historical transaction velocity, and connected high-risk clusters.`,
       toolCall: {
         name: 'open_account',
-        arguments: { accountId: acctId }
+        arguments: { accountId: acctMatch }
       },
-      sources: ['Account 360 Database', `Entity ID: ${acctId}`]
+      sources: ['Account 360 Database', `Entity ID: ${acctMatch}`, 'Counterparty Graph']
     };
   }
 
   if (msgLower.includes('screen') || msgLower.includes('sanction') || msgLower.includes('pep') || msgLower.includes('watchlist')) {
     const nameMatch = message.match(/(?:screen|check|lookup)\s+([A-Za-z\s]+)/i)?.[1]?.trim() || 'Valeriy Mikhailov';
     return {
-      text: `Executing real-time fuzzy screening for "${nameMatch}" against consolidated OFAC SDN, PEP Global, and EU sanctions lists.`,
+      text: `Executing real-time fuzzy screening for "${nameMatch}" against OFAC SDN, EU Consolidated Financial Sanctions, and PEP Global Registers.`,
       toolCall: {
         name: 'screen_name',
         arguments: { name: nameMatch }
       },
-      sources: ['OFAC SDN Watchlist', 'EU Consolidated', 'PEP Global Register']
+      sources: ['OFAC SDN Watchlist', 'EU Consolidated Sanctions', 'PEP Global Register']
     };
   }
 
-  if (msgLower.includes('replay') || msgLower.includes('simulate') || msgLower.includes('loop') || msgLower.includes('network')) {
+  if (msgLower.includes('replay') || msgLower.includes('network') || msgLower.includes('graph') || msgLower.includes('loop')) {
     const caseId = selectedCase?.id || 'TXN-94021';
     return {
-      text: `Replaying chronological execution of ${selectedCase?.typologyLabel || 'the structuring and cyclic network flow'}. Watch the sequential hops and value decrements across the entity nodes.`,
+      text: `Opening Network Graph and chronological hop replay for ${selectedCase?.typologyLabel || 'Cyclic Layering Flow'}. Replaying transaction time-steps across intermediary nodes.`,
       toolCall: {
         name: 'replay_typology',
         arguments: { caseId, typology: selectedCase?.typology || 'cyclic_flow' }
       },
-      sources: ['Temporal Event Log', 'Graph Hop Sequencer', 'Network Topology Engine']
+      sources: ['Temporal Graph Sequencer', 'Graph Hop Sequencer', 'Network Topology Engine']
+    };
+  }
+
+  if (msgLower.includes('open case') || msgLower.includes('investigate case') || msgLower.includes('txn-')) {
+    const idMatch = message.match(/txn-\d+/i)?.[0]?.toUpperCase() || selectedCase?.id || 'TXN-94021';
+    return {
+      text: `Opening full investigation workspace for Case #${idMatch}. Loading SHAP feature explanations, counterfactual projection sliders, and perimeter audit history.`,
+      toolCall: {
+        name: 'open_case',
+        arguments: { caseId: idMatch }
+      },
+      sources: [`Case #${idMatch} Record`, 'Audit Trail']
     };
   }
 
   if (selectedCase) {
     return {
-      text: `Case #${selectedCase.id} is flagged with a Unified Risk Score of ${selectedCase.riskScore.toFixed(1)}/100 (${selectedCase.typologyLabel}). The primary driver is ${selectedCase.whyRanked || 'anomalous transaction velocity and network clustering'}. Key risk indicators are consistent with deliberate capital layering. Recommended action is ${selectedCase.suggestedAction || 'Escalate to SAR'}.`,
-      sources: ['Unified Risk Scorer (XGBoost + IF)', `SHAP features: ${Object.keys(selectedCase.features || {}).slice(0, 3).join(', ')}`]
+      text: `Case #${selectedCase.id} is flagged with a Unified Risk Score of ${Number(selectedCase.riskScore).toFixed(1)}/100 (${selectedCase.typologyLabel}). The transaction involves $${Number(selectedCase.amount).toLocaleString()} routed from ${selectedCase.fromCity} to ${selectedCase.toCity}. Primary driver is ${selectedCase.whyRanked || 'structuring threshold evasion and high volume velocity'}. You can ask me to draft a SAR, fly to this location on the map, or project counterfactuals.`,
+      sources: ['Unified Risk Scorer (XGBoost + IF)', `Corridor: ${selectedCase.fromCity} ➔ ${selectedCase.toCity}`]
     };
   }
 
   return {
-    text: "I am actively monitoring the real-time transaction stream and model telemetry. You can ask me to evaluate any case, run bulk auto-triage, project counterfactual scenarios, replay suspicious networks, or fly to suspicious corridors on the 3D globe.",
-    sources: ['Monetrax Command Context', 'Stream Ingestion Engine (1,420 tx/min)']
+    text: "I am actively analyzing the transaction stream and compliance queue. You can ask me to evaluate any case, run bulk auto-triage on false positives, draft a SAR report with AI, screen counterparties against OFAC, or fly to suspicious corridors on the 3D globe.",
+    sources: ['Monetrax Surveillance Core', 'Stream Telemetry (1,420 tx/min)']
   };
 }
+
+// -----------------------------------------------------------------------------
+// API Endpoints
+// -----------------------------------------------------------------------------
 
 // Health check endpoint
 app.get('/api/ai/health', (req, res) => {
@@ -168,41 +219,41 @@ app.get('/api/ai/health', (req, res) => {
   });
 });
 
-// Streaming endpoint
+// 1. Live AI Perimeter Narrative Streaming Endpoint
 app.post('/api/ai/stream', async (req, res) => {
-  const { type, data, prompt } = req.body;
-  const cacheKey = JSON.stringify({ type, data: data?.id || data?.stats || prompt });
+  const { type = 'case_narrative', data = {}, prompt } = req.body || {};
+  const cacheKey = JSON.stringify({ type, id: data?.id || data?.amount || prompt });
 
   if (responseCache.has(cacheKey)) {
     return streamTextToResponse(res, responseCache.get(cacheKey), 12);
   }
 
-  // If Gemini API Key is available, use official SDK or REST
+  // Live Gemini call if API key is present
   if (GEMINI_API_KEY && GEMINI_API_KEY !== 'your_gemini_api_key_here') {
     try {
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
-      let systemInstruction = "You are Monetrax, an AI financial crime investigator. Answer concisely (2-4 sentences max), strictly grounded in the provided numeric features and AML typologies. Never declare legal guilt; use 'indicators consistent with...' phrasing.";
+      let systemInstruction = "You are Monetrax, an expert AML investigative AI. Generate an analytical, regulatory-grade investigation narrative for this transaction. Strictly ground your analysis in the provided numeric features (amount, corridor, typology score, z-score). Keep it to 2-4 sentences. Use objective compliance terminology ('indicators consistent with...', 'deviates by +X standard deviations').";
       let userPrompt = prompt || '';
 
       if (type === 'case_narrative') {
+        const amt = data.amount ? `$${Number(data.amount).toLocaleString()}` : 'elevated amount';
         userPrompt = `Generate a concise 2-3 sentence regulatory AML investigation narrative for this transaction:
-Typology: ${data.typologyLabel || data.typology}
+Case ID: ${data.id || 'TXN-94021'}
+Typology: ${data.typologyLabel || data.typology || 'Structuring'}
 Unified Risk Score: ${data.riskScore}/100
 Features: ${JSON.stringify(data.features || {})}
-Corridor: ${data.fromCountry} to ${data.toCountry}
-Amount: $${data.amount}
-Only cite provided features.`;
+Corridor: ${data.fromCity || 'Origin'} (${data.fromCountry || 'N/A'}) to ${data.toCity || 'Destination'} (${data.toCountry || 'N/A'})
+Amount: ${amt}
+Focus on why the feature values and corridor make this transaction suspicious.`;
       } else if (type === 'situation_brief') {
         userPrompt = `Generate a high-level 3-sentence AML Situation Brief for the current monitoring window:
-Flagged cases: ${data.flaggedCount}
-Total volume: ${data.totalVolumeFormatted}
-Structuring rings: ${data.structuringCount}
-Cycle rings: ${data.cycleCount}
+Flagged cases: ${data.flaggedCount || 14}
+Total volume: ${data.totalVolumeFormatted || '$4.8M'}
+Structuring rings: ${data.structuringCount || 4}
+Cycle rings: ${data.cycleCount || 2}
 PR-AUC: 0.83. State what is happening right now in calm, professional investigator tone.`;
-      } else if (type === 'risky_chat') {
-        userPrompt = `User question: "${prompt}". Screen: ${data.screen}. Selected case: ${JSON.stringify(data.selectedCase || 'none')}. Answer calmly and directly as an AML investigator.`;
       }
 
       res.setHeader('Content-Type', 'text/event-stream');
@@ -214,7 +265,7 @@ PR-AUC: 0.83. State what is happening right now in calm, professional investigat
         contents: userPrompt,
         config: {
           systemInstruction,
-          temperature: 0.3
+          temperature: 0.25
         }
       });
 
@@ -231,8 +282,7 @@ PR-AUC: 0.83. State what is happening right now in calm, professional investigat
       res.write(`data: ${JSON.stringify({ text: '', done: true })}\n\n`);
       return res.end();
     } catch (err) {
-      console.warn('Gemini API call failed, gracefully falling back to deterministic template:', err.message);
-      // Fall through to fallback
+      console.warn('Gemini stream call failed, falling back to deterministic template:', err.message);
     }
   }
 
@@ -241,71 +291,135 @@ PR-AUC: 0.83. State what is happening right now in calm, professional investigat
   if (type === 'case_narrative') {
     generated = generateFallbackNarrative(data);
   } else if (type === 'situation_brief') {
-    generated = generateFallbackSituationBrief(data);
-  } else if (type === 'risky_chat') {
-    const reply = generateFallbackRiskyReply(prompt || '', data?.screen, data?.selectedCase);
-    generated = reply.text;
+    generated = `Surveillance network actively monitoring live ingestion at 1,420 tx/min. In the current surveillance window, ${data?.flaggedCount || 14} anomalies have been isolated, dominated by ${data?.structuringCount || 4} sub-$10k structuring clusters. The stacked meta-learner maintains high discriminative power with 0.83 PR-AUC.`;
   } else {
-    generated = "Monetrax surveillance analysis indicates active pattern verification against baseline transaction distributions.";
+    generated = generateFallbackNarrative(data);
   }
 
   responseCache.set(cacheKey, generated);
-  return streamTextToResponse(res, generated, 15);
+  return streamTextToResponse(res, generated, 14);
 });
 
-// Structured JSON generation endpoint
+// 2. Structured Natural Language Search & Auto-Triage Endpoint
 app.post('/api/ai/structured', async (req, res) => {
-  const { type, query, items } = req.body;
+  const { type, query, items } = req.body || {};
 
   // Natural Language filter parsing
   if (type === 'nl_search') {
-    const q = (query || '').toLowerCase();
+    const q = (query || '').trim();
+
+    // Live Gemini structured parse if key present
+    if (GEMINI_API_KEY && GEMINI_API_KEY !== 'your_gemini_api_key_here') {
+      try {
+        const { GoogleGenAI } = await import('@google/genai');
+        const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+
+        const prompt = `Parse this financial crime compliance search query into structured filter fields:
+"${q}"
+Return JSON only matching this schema:
+{
+  "typology": "structuring" | "cyclic_flow" | "mule_fan" | null,
+  "minAmount": number | null,
+  "maxAmount": number | null,
+  "minRisk": number | null,
+  "city": string | null,
+  "timeframe": "24h" | "7d" | "30d" | null,
+  "explanation": string
+}`;
+
+        const response = await ai.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: prompt,
+          config: {
+            temperature: 0.1,
+            responseMimeType: 'application/json'
+          }
+        });
+
+        const parsed = JSON.parse(response.text || '{}');
+        const chips = [];
+        if (parsed.typology) {
+          const label = parsed.typology === 'structuring' ? 'Typology: Structuring' : parsed.typology === 'cyclic_flow' ? 'Typology: Cyclic Layering' : 'Typology: Mule Network';
+          chips.push({ label, field: 'typology', value: parsed.typology });
+        }
+        if (parsed.minAmount) {
+          chips.push({ label: `Amount: > $${Number(parsed.minAmount).toLocaleString()}`, field: 'minAmount', value: parsed.minAmount });
+        }
+        if (parsed.city) {
+          chips.push({ label: `City: ${parsed.city}`, field: 'city', value: parsed.city });
+        }
+        if (parsed.minRisk) {
+          chips.push({ label: `Risk: ≥${parsed.minRisk}`, field: 'minRisk', value: parsed.minRisk });
+        }
+        if (parsed.timeframe) {
+          chips.push({ label: `Time: ${parsed.timeframe === '24h' ? 'Last 24 Hours' : 'Past 7 Days'}`, field: 'timeframe', value: parsed.timeframe });
+        }
+
+        return res.json({ ...parsed, chips });
+      } catch (err) {
+        console.warn('Gemini NL search parse failed, using fallback regex parser:', err.message);
+      }
+    }
+
+    // High-fidelity fallback regex parser
+    const qLower = q.toLowerCase();
     const result = {
       typology: null,
       minAmount: null,
       maxAmount: null,
-      minRisk: null,
+      city: null,
       timeframe: null,
       chips: []
     };
 
-    if (q.includes('structuring')) {
+    if (qLower.includes('structuring') || qLower.includes('smurf')) {
       result.typology = 'structuring';
-      result.chips.push({ label: 'Typology: Structuring', key: 'typology', val: 'structuring' });
-    }
-    if (q.includes('cycle') || q.includes('cyclic')) {
+      result.chips.push({ label: 'Typology: Structuring', field: 'typology', value: 'structuring' });
+    } else if (qLower.includes('cycle') || qLower.includes('cyclic') || qLower.includes('layering')) {
       result.typology = 'cyclic_flow';
-      result.chips.push({ label: 'Typology: Cyclic Flow', key: 'typology', val: 'cyclic_flow' });
-    }
-    if (q.includes('mule')) {
+      result.chips.push({ label: 'Typology: Cyclic Flow', field: 'typology', value: 'cyclic_flow' });
+    } else if (qLower.includes('mule')) {
       result.typology = 'mule_fan';
-      result.chips.push({ label: 'Typology: Mule Network', key: 'typology', val: 'mule_fan' });
+      result.chips.push({ label: 'Typology: Mule Network', field: 'typology', value: 'mule_fan' });
     }
 
-    const amountMatch = q.match(/(\$|over\s+|greater\s+than\s+|>|under\s+|<)?\s*(\d+)(k|m)?/i);
-    if (q.includes('50k') || (amountMatch && amountMatch[2] === '50' && amountMatch[3] === 'k')) {
-      result.minAmount = 50000;
-      result.chips.push({ label: 'Amount: > $50,000', key: 'minAmount', val: 50000 });
-    } else if (q.includes('10k') || (amountMatch && amountMatch[2] === '10' && amountMatch[3] === 'k')) {
-      result.minAmount = 10000;
-      result.chips.push({ label: 'Amount: > $10,000', key: 'minAmount', val: 10000 });
+    // Amount parsing (e.g. above $9,000, > 50k, over 10000)
+    const amountMatch = qLower.match(/(?:above|over|greater\s+than|>)\s*\$?([0-9,]+)\s*(k|m)?/i) || qLower.match(/\$([0-9,]+)\s*(k|m)?/i);
+    if (amountMatch) {
+      let rawNum = parseFloat(amountMatch[1].replace(/,/g, ''));
+      const unit = amountMatch[2]?.toLowerCase();
+      if (unit === 'k') rawNum *= 1000;
+      if (unit === 'm') rawNum *= 1000000;
+      result.minAmount = rawNum;
+      result.chips.push({ label: `Amount: > $${rawNum.toLocaleString()}`, field: 'minAmount', value: rawNum });
     }
 
-    if (q.includes('critical') || q.includes('high risk')) {
-      result.minRisk = 70;
-      result.chips.push({ label: 'Risk: High (≥70)', key: 'minRisk', val: 70 });
+    // Cities
+    const knownCities = ['London', 'Zurich', 'Singapore', 'New York', 'Dubai', 'Berlin', 'Tokyo', 'Hong Kong', 'Geneva', 'Frankfurt'];
+    for (const city of knownCities) {
+      if (qLower.includes(city.toLowerCase())) {
+        result.city = city;
+        result.chips.push({ label: `City: ${city}`, field: 'city', value: city });
+        break;
+      }
     }
 
-    if (q.includes('week') || q.includes('7d')) {
+    // Timeframe
+    if (qLower.includes('week') || qLower.includes('7d')) {
       result.timeframe = '7d';
-      result.chips.push({ label: 'Time: Past 7 Days', key: 'timeframe', val: '7d' });
-    } else if (q.includes('today') || q.includes('24h')) {
+      result.chips.push({ label: 'Time: Past 7 Days', field: 'timeframe', value: '7d' });
+    } else if (qLower.includes('today') || qLower.includes('24h') || qLower.includes('day')) {
       result.timeframe = '24h';
-      result.chips.push({ label: 'Time: Last 24 Hours', key: 'timeframe', val: '24h' });
+      result.chips.push({ label: 'Time: Last 24 Hours', field: 'timeframe', value: '24h' });
     }
 
-    if (result.chips.length === 0 && q.trim().length > 0) {
-      result.chips.push({ label: `Filter: "${query}"`, key: 'search', val: query });
+    if (qLower.includes('critical') || qLower.includes('high risk') || qLower.includes('elevated')) {
+      result.minRisk = 70;
+      result.chips.push({ label: 'Risk: High (≥70)', field: 'minRisk', value: 70 });
+    }
+
+    if (result.chips.length === 0 && q.length > 0) {
+      result.chips.push({ label: `Search: "${q}"`, field: 'search', value: q });
     }
 
     return res.json(result);
@@ -331,11 +445,233 @@ app.post('/api/ai/structured', async (req, res) => {
   return res.json({ status: 'unsupported_structured_type' });
 });
 
-// Risky Assistant non-streaming helper
-app.post('/api/ai/risky', (req, res) => {
+// 3. AI-Drafted SAR Reports Endpoint
+app.post('/api/ai/draft_sar', async (req, res) => {
+  const caseData = req.body || {};
+  const { id = 'TXN-94021', amount = 9450, typologyLabel = 'Structuring', fromCity = 'London', toCity = 'Zurich' } = caseData;
+
+  // Live Gemini call if key available
+  if (GEMINI_API_KEY && GEMINI_API_KEY !== 'your_gemini_api_key_here') {
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+
+      const prompt = `You are a Senior BSA/AML Compliance Officer drafting FinCEN Form 111 (Suspicious Activity Report).
+Draft a formal, comprehensive 4-paragraph SAR narrative based on this case:
+Case ID: #${id}
+Amount: $${Number(amount).toLocaleString()} USD
+Typology: ${typologyLabel}
+Corridor: ${fromCity} to ${toCity}
+Features: ${JSON.stringify(caseData.features || {})}
+Risk Score: ${caseData.riskScore || 84}/100
+
+Structure with 4 formal headers:
+PART I: SUMMARY OF SUSPICIOUS ACTIVITY
+PART II: TRANSACTION CHRONOLOGY & FINANCIAL PATTERNS
+PART III: TYPOLOGY ANALYSIS & EVIDENCE OF ILLICIT INTENT
+PART IV: INSTITUTIONAL ACTIONS TAKEN & LAW ENFORCEMENT RECOMMENDATION`;
+
+      const response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        config: { temperature: 0.2 }
+      });
+
+      if (response.text) {
+        return res.json({ narrative: response.text, source: 'gemini-1.5-flash' });
+      }
+    } catch (err) {
+      console.warn('Gemini SAR drafting failed, falling back to local regulatory template:', err.message);
+    }
+  }
+
+  // Fallback regulatory template
+  const narrative = generateFallbackSAR(caseData);
+  return res.json({ narrative, source: 'offline_fallback' });
+});
+
+// 4. Explainable Risk Breakdown ("Why this score?")
+app.post('/api/ai/explain_score', async (req, res) => {
+  const data = req.body || {};
+
+  if (GEMINI_API_KEY && GEMINI_API_KEY !== 'your_gemini_api_key_here') {
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+
+      const prompt = `You are an Explainable AI (XAI) financial crime specialist. Explain why this transaction received a risk score of ${data.riskScore}/100 in plain English for a compliance analyst.
+Convert the following SHAP feature importance values into a concise 1-sentence summary and 3 clear, jargon-free bullet points:
+Features: ${JSON.stringify(data.factors || data.features || {})}
+Typology: ${data.typologyLabel || data.typology}
+Amount: $${data.amount}
+Corridor: ${data.fromCity} to ${data.toCity}
+
+Return JSON matching:
+{
+  "summary": string,
+  "bullets": [string, string, string]
+}`;
+
+      const response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        config: {
+          temperature: 0.1,
+          responseMimeType: 'application/json'
+        }
+      });
+
+      const parsed = JSON.parse(response.text || '{}');
+      return res.json({ ...parsed, source: 'gemini-1.5-flash' });
+    } catch (err) {
+      console.warn('Gemini explain_score failed, using local breakdown:', err.message);
+    }
+  }
+
+  const breakdown = generateFallbackExplainScore(data);
+  return res.json({ ...breakdown, source: 'offline_fallback' });
+});
+
+// 5. Risky Assistant Multi-Turn Reasoning & Function Calling
+app.post('/api/ai/risky', async (req, res) => {
   try {
-    const { message, screen, selectedCase } = req.body || {};
-    const reply = generateFallbackRiskyReply(message || '', screen, selectedCase);
+    const { message = '', screen = '/', selectedCase = null, history = [] } = req.body || {};
+
+    // Live Gemini call with multi-turn conversation and function-calling
+    if (GEMINI_API_KEY && GEMINI_API_KEY !== 'your_gemini_api_key_here') {
+      try {
+        const { GoogleGenAI } = await import('@google/genai');
+        const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+
+        const tools = [{
+          functionDeclarations: [
+            {
+              name: 'open_case',
+              description: 'Open full investigation case details',
+              parameters: {
+                type: 'OBJECT',
+                properties: { caseId: { type: 'STRING', description: 'Case ID e.g. TXN-94021' } },
+                required: ['caseId']
+              }
+            },
+            {
+              name: 'fly_to_location',
+              description: 'Fly camera and dive to geographic corridor location on 3D globe / map',
+              parameters: {
+                type: 'OBJECT',
+                properties: {
+                  caseId: { type: 'STRING', description: 'Case ID' },
+                  city: { type: 'STRING', description: 'Destination city name' }
+                },
+                required: ['caseId']
+              }
+            },
+            {
+              name: 'generate_sar',
+              description: 'Open SAR Filing Center to draft a FinCEN SAR report',
+              parameters: {
+                type: 'OBJECT',
+                properties: { caseId: { type: 'STRING', description: 'Case ID' } },
+                required: ['caseId']
+              }
+            },
+            {
+              name: 'open_account',
+              description: 'Open Account 360 profile dossier',
+              parameters: {
+                type: 'OBJECT',
+                properties: { accountId: { type: 'STRING', description: 'Account ID' } },
+                required: ['accountId']
+              }
+            },
+            {
+              name: 'screen_name',
+              description: 'Screen counterparty or individual against OFAC SDN and sanctions',
+              parameters: {
+                type: 'OBJECT',
+                properties: { name: { type: 'STRING', description: 'Name to screen' } },
+                required: ['name']
+              }
+            },
+            {
+              name: 'replay_typology',
+              description: 'Replay network graph timeline hops',
+              parameters: {
+                type: 'OBJECT',
+                properties: {
+                  caseId: { type: 'STRING', description: 'Case ID' },
+                  typology: { type: 'STRING', description: 'Typology code' }
+                },
+                required: ['caseId']
+              }
+            },
+            {
+              name: 'run_auto_triage',
+              description: 'Open AI Auto-Triage verification modal to batch clear benign false-positives',
+              parameters: {
+                type: 'OBJECT',
+                properties: { casesToClear: { type: 'NUMBER', description: 'Number of candidate cases' } }
+              }
+            }
+          ]
+        }];
+
+        // Build multi-turn contents
+        const contents = [];
+        // Add recent conversation history (up to last 6 messages)
+        const recentHistory = Array.isArray(history) ? history.slice(-6) : [];
+        for (const h of recentHistory) {
+          contents.push({
+            role: h.sender === 'user' ? 'user' : 'model',
+            parts: [{ text: h.text }]
+          });
+        }
+        // Current user message
+        const caseContext = selectedCase ? ` [Current active case in view: #${selectedCase.id}, amount $${selectedCase.amount}, typology ${selectedCase.typologyLabel}, corridor ${selectedCase.fromCity} to ${selectedCase.toCity}, risk ${selectedCase.riskScore}/100]` : '';
+        contents.push({
+          role: 'user',
+          parts: [{ text: `${message}${caseContext}` }]
+        });
+
+        const systemInstruction = "You are Risky, an expert autonomous AI compliance copilot for Monetrax. Provide thoughtful, concise multi-turn reasoning about AML transactions and sanctions. When the user asks you to take an action (open a case, fly to location/globe, draft a SAR, screen an entity, replay network, or run auto-triage), invoke the appropriate function call.";
+
+        const response = await ai.models.generateContent({
+          model: GEMINI_MODEL,
+          contents,
+          config: {
+            systemInstruction,
+            temperature: 0.3,
+            tools
+          }
+        });
+
+        const candidate = response.candidates?.[0];
+        let toolCall = null;
+        if (candidate?.content?.parts) {
+          for (const part of candidate.content.parts) {
+            if (part.functionCall) {
+              toolCall = {
+                name: part.functionCall.name,
+                arguments: part.functionCall.args || {}
+              };
+              break;
+            }
+          }
+        }
+
+        const replyText = response.text || (toolCall ? `Executing ${toolCall.name.replace(/_/g, ' ')}...` : "Analysis completed.");
+        return res.json({
+          text: replyText,
+          toolCall,
+          sources: ['Gemini 1.5 Flash (Live Reasoning)', 'Monetrax Knowledge Engine']
+        });
+      } catch (err) {
+        console.warn('Gemini risky call failed, falling back to local reasoning:', err.message);
+      }
+    }
+
+    // High-fidelity multi-turn fallback
+    const reply = generateFallbackRiskyReply(message, screen, selectedCase, history);
     res.json(reply);
   } catch (err) {
     console.error('Error in /api/ai/risky:', err);

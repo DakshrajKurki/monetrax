@@ -42,6 +42,13 @@ export const RiskyAssistant: React.FC = () => {
   const activeTxn = transactions.find(t => t.id === selectedTxnId) || transactions[0];
 
   const [isOpen, setIsOpen] = useState<boolean>(false);
+
+  // Listen for global custom event to open assistant from sidebar or commands
+  useEffect(() => {
+    const handleOpenRisky = () => setIsOpen(true);
+    window.addEventListener('open-risky-assistant', handleOpenRisky);
+    return () => window.removeEventListener('open-risky-assistant', handleOpenRisky);
+  }, []);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'm-1',
@@ -145,6 +152,10 @@ export const RiskyAssistant: React.FC = () => {
         body: JSON.stringify({
           message: text,
           screen: pathname,
+          history: messages.slice(-10).map(m => ({
+            sender: m.sender,
+            text: m.text
+          })),
           selectedCase: {
             id: activeTxn.id,
             riskScore: activeTxn.riskScore,
@@ -246,41 +257,41 @@ export const RiskyAssistant: React.FC = () => {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 z-50 node-chip px-4 py-2.5 shadow-2xl hover:border-[var(--sage-2)] border border-[var(--line)] bg-[#0B0F0D]/90 backdrop-blur-xl group transition-all"
+          className="fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-full shadow-2xl border border-white/10 bg-[#161619]/90 hover:border-[#FF6A2B]/40 backdrop-blur-xl group transition-all flex items-center gap-2.5"
         >
-          <div className="w-2 h-2 rounded-full bg-[var(--sage-2)] animate-ping" />
+          <div className="w-2 h-2 rounded-full bg-[#FF6A2B] animate-ping" />
           <div className="text-left font-sans">
-            <div className="text-xs font-semibold text-[var(--text)] flex items-center gap-1.5">
+            <div className="text-xs font-semibold text-white flex items-center gap-1.5">
               <span>Ask Risky</span>
-              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-[var(--sage-2)]/20 text-[var(--sage-3)] font-mono">
+              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-[#FF6A2B]/20 text-[#FF6A2B] font-mono font-medium">
                 AI Copilot
               </span>
             </div>
-            <div className="text-[10px] text-[var(--muted)] font-mono">Autonomous Investigator</div>
+            <div className="text-[10px] text-[var(--caption)] font-mono">Autonomous Investigator</div>
           </div>
-          <Sparkles className="w-4 h-4 text-[var(--sage-3)] group-hover:scale-110 transition-transform ml-1" />
+          <Sparkles className="w-4 h-4 text-[#FF6A2B] group-hover:scale-110 transition-transform ml-1" />
         </button>
       )}
 
       {/* Floating Chat Panel */}
       {isOpen && (
-        <div className="fixed bottom-6 right-6 z-50 w-96 max-w-[calc(100vw-32px)] h-[540px] max-h-[85vh] rounded-[24px] glass-panel p-4 shadow-2xl border border-[var(--line)] flex flex-col justify-between animate-fadeIn bg-[#0B0F0D]/95 backdrop-blur-2xl font-sans">
+        <div className="fixed bottom-6 right-6 z-50 w-96 max-w-[calc(100vw-32px)] h-[540px] max-h-[85vh] rounded-[20px] p-4 shadow-2xl border border-white/10 flex flex-col justify-between animate-fadeIn bg-[#121215]/95 backdrop-blur-2xl font-sans">
           {/* Header */}
-          <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
+          <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-[var(--sage-2)]/20 border border-[var(--sage-2)]/40 flex items-center justify-center text-[var(--sage-3)]">
+              <div className="w-8 h-8 rounded-full bg-[#FF6A2B]/20 border border-[#FF6A2B]/40 flex items-center justify-center text-[#FF6A2B]">
                 <Sparkles className="w-4 h-4" />
               </div>
               <div>
                 <div className="flex items-center gap-1.5">
-                  <h3 className="text-xs font-medium text-white">
+                  <h3 className="text-xs font-semibold text-white">
                     Risky — AI Investigator
                   </h3>
-                  <span className="text-[9px] px-1.5 rounded-full bg-[var(--live)]/20 text-[var(--live)] font-mono">
+                  <span className="text-[9px] px-1.5 rounded-full bg-[#4ADE9A]/20 text-[#4ADE9A] font-mono">
                     Online
                   </span>
                 </div>
-                <p className="text-[10px] text-[var(--muted)] font-mono">
+                <p className="text-[10px] text-[var(--caption)] font-mono">
                   Context: #{activeTxn.id}
                 </p>
               </div>
@@ -288,14 +299,14 @@ export const RiskyAssistant: React.FC = () => {
 
             <button
               onClick={() => setIsOpen(false)}
-              className="text-[var(--muted)] hover:text-white p-1 rounded-full hover:bg-white/[0.05]"
+              className="text-[var(--muted)] hover:text-white p-1 rounded-full hover:bg-white/[0.08]"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
           {/* Messages Stream */}
-          <div className="flex-1 overflow-y-auto my-3 pr-1 space-y-3 text-xs leading-relaxed">
+          <div className="flex-1 overflow-y-auto my-3 pr-1 space-y-3 text-xs leading-relaxed scrollbar-thin">
             {messages.map((m) => (
               <div
                 key={m.id}
@@ -304,26 +315,26 @@ export const RiskyAssistant: React.FC = () => {
                 <div
                   className={`p-3 max-w-[88%] ${
                     m.sender === 'user'
-                      ? 'bg-[var(--sage-2)] text-[#0A0D0C] font-medium rounded-2xl rounded-br-sm shadow-md'
-                      : 'bg-white/[0.04] border border-[var(--line)] text-[var(--text)] font-light rounded-2xl rounded-bl-sm'
+                      ? 'bg-gradient-to-r from-[#FF6A2B] to-[#FF4D1A] text-white font-medium rounded-2xl rounded-br-sm shadow-md'
+                      : 'bg-white/[0.04] border border-white/[0.08] text-[#F5F5F6] font-normal rounded-2xl rounded-bl-sm backdrop-blur-sm'
                   }`}
                 >
                   <p className="leading-relaxed">{m.text}</p>
 
                   {/* Tool Call Action Pill */}
                   {m.toolCall && (
-                    <div className="mt-2.5 pt-2 border-t border-[var(--line)]">
+                    <div className="mt-2.5 pt-2 border-t border-white/10">
                       {m.toolCall.executed ? (
-                        <div className="flex items-center gap-1 text-[11px] text-[var(--live)] font-mono">
+                        <div className="flex items-center gap-1 text-[11px] text-[#4ADE9A] font-mono">
                           <Check className="w-3 h-3" />
                           <span>Action Executed: {m.toolCall.name}</span>
                         </div>
                       ) : (
                         <button
                           onClick={() => handleExecuteTool(m.id, m.toolCall!)}
-                          className="px-3 py-1 rounded-full bg-white/[0.08] hover:bg-white/[0.18] border border-white/20 text-[11px] font-mono text-[var(--sage-3)] hover:text-white transition-all flex items-center gap-1"
+                          className="px-3 py-1 rounded-full bg-white/[0.08] hover:bg-white/[0.18] border border-white/20 text-[11px] font-mono text-white transition-all flex items-center gap-1"
                         >
-                          <Play className="w-2.5 h-2.5" />
+                          <Play className="w-2.5 h-2.5 text-[#FF6A2B]" />
                           <span>Execute: {m.toolCall.name}()</span>
                         </button>
                       )}
@@ -336,7 +347,7 @@ export const RiskyAssistant: React.FC = () => {
                       {m.sources.map((s, idx) => (
                         <span
                           key={idx}
-                          className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-[var(--sage-2)]/[0.1] text-[var(--sage-3)] border border-[var(--sage-2)]/20"
+                          className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-white/[0.06] text-[var(--muted)] border border-white/10"
                         >
                           {s}
                         </span>
@@ -345,19 +356,19 @@ export const RiskyAssistant: React.FC = () => {
                   )}
 
                   {m.sender === 'risky' && (
-                    <div className="text-[9px] text-[var(--muted)] font-mono mt-1.5 italic">
+                    <div className="text-[9px] text-[var(--caption)] font-mono mt-1.5 italic">
                       AI-generated • Verify before compliance action
                     </div>
                   )}
                 </div>
-                <span className="text-[9px] text-[var(--muted)] font-mono mt-1 px-1">
+                <span className="text-[9px] text-[var(--caption)] font-mono mt-1 px-1">
                   {m.timestamp}
                 </span>
               </div>
             ))}
 
             {isThinking && (
-              <div className="flex items-center gap-2 text-xs text-[var(--sage-3)] font-mono animate-pulse p-2">
+              <div className="flex items-center gap-2 text-xs text-[#FF6A2B] font-mono animate-pulse p-2">
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Investigating stream indicators...</span>
               </div>
@@ -366,12 +377,12 @@ export const RiskyAssistant: React.FC = () => {
           </div>
 
           {/* Contextual Suggested Prompt Chips */}
-          <div className="pt-2 border-t border-[var(--line)] flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none">
+          <div className="pt-2 border-t border-white/[0.08] flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none">
             {contextualPrompts.map((prompt, i) => (
               <button
                 key={i}
                 onClick={() => handleSendMessage(prompt)}
-                className="shrink-0 text-[10px] px-2.5 py-1 rounded-full bg-white/[0.03] hover:bg-white/[0.08] text-[var(--muted)] hover:text-white border border-[var(--line)] transition-all whitespace-nowrap"
+                className="shrink-0 text-[10px] px-2.5 py-1 rounded-full bg-white/[0.03] hover:bg-white/[0.08] text-[var(--muted)] hover:text-white border border-white/[0.08] hover:border-[#FF6A2B]/40 transition-all whitespace-nowrap"
               >
                 {prompt}
               </button>
@@ -391,19 +402,19 @@ export const RiskyAssistant: React.FC = () => {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder="Ask Risky to evaluate, filter, or act..."
-              className="flex-1 bg-white/[0.04] border border-[var(--line)] rounded-full pl-4 pr-10 py-2 text-xs text-white placeholder:text-[var(--muted)]/60 focus:outline-none focus:border-[var(--sage-2)] transition-all font-sans"
+              className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-full pl-4 pr-10 py-2 text-xs text-white placeholder:text-[var(--caption)] focus:outline-none focus:border-[#FF6A2B] transition-all font-sans"
             />
             <button
               type="submit"
               disabled={!inputText.trim() || isThinking}
-              className="w-8 h-8 rounded-full bg-white text-darkCanvas flex items-center justify-center disabled:opacity-40 hover:bg-[var(--sage-3)] transition-all shrink-0"
+              className="w-8 h-8 rounded-full bg-gradient-to-r from-[#FF6A2B] to-[#FF4D1A] text-white flex items-center justify-center disabled:opacity-40 hover:brightness-105 shadow-md transition-all shrink-0"
             >
               <Send className="w-3.5 h-3.5" />
             </button>
           </form>
 
-          <div className="text-[9px] text-[var(--muted)] text-center pt-2 font-mono">
-            AI-generated indicators • Grounded in stream features • Verify before action
+          <div className="text-[9px] text-[var(--caption)] text-center pt-2 font-mono">
+            AI-generated indicators • Grounded in stream features
           </div>
         </div>
       )}

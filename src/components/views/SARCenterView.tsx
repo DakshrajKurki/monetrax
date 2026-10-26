@@ -1,5 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
+import { useOnClickOutside } from '../../hooks/useOnClickOutside';
 import { 
   FileText, 
   Clock, 
@@ -13,10 +15,12 @@ import {
   Edit3,
   Calendar,
   Building,
-  DollarSign
+  DollarSign,
+  Sparkles
 } from 'lucide-react';
 import { useAMLStore } from '../../store/useAMLStore';
 import { pageVariants } from '../common/MotionComponents';
+import { PageHeader } from '../common/PageHeader';
 import { SARDraft } from '../../types';
 import { formatCurrency, formatRelativeTime } from '../../utils/formatters';
 
@@ -34,6 +38,19 @@ export const SARCenterView: React.FC = () => {
   // New Draft modal state
   const [newCaseId, setNewCaseId] = useState<string>('');
 
+  const newDraftModalRef = useRef<HTMLDivElement>(null);
+  useOnClickOutside(newDraftModalRef, () => setIsNewModalOpen(false), { enabled: isNewModalOpen });
+
+  useEffect(() => {
+    if (isNewModalOpen) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prev;
+      };
+    }
+  }, [isNewModalOpen]);
+
   const activeDraft = useMemo(() => {
     return sarDrafts.find((d) => d.id === selectedDraftId) || sarDrafts[0];
   }, [selectedDraftId, sarDrafts]);
@@ -45,6 +62,50 @@ export const SARCenterView: React.FC = () => {
       setIsEditingNarrative(false);
     }
   }, [activeDraft]);
+
+  const [isDraftingAI, setIsDraftingAI] = useState(false);
+
+  const handleDraftWithAI = async () => {
+    if (!activeDraft) return;
+    setIsDraftingAI(true);
+    try {
+      const matchTxn = transactions.find(t => t.id === activeDraft.caseId) || transactions[0];
+      const res = await fetch('/api/ai/draft_sar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: activeDraft.caseId,
+          amount: activeDraft.amount,
+          typologyLabel: activeDraft.typology,
+          fromAccount: activeDraft.accountId,
+          features: matchTxn?.features,
+          fromCity: matchTxn?.fromCity || 'London',
+          toCity: matchTxn?.toCity || 'Zurich',
+          riskScore: matchTxn?.riskScore || 84
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.narrative) {
+          setEditedNarrative(data.narrative);
+          setIsEditingNarrative(true);
+          addToast({
+            title: 'SAR Drafted with AI',
+            message: `Generated formal FinCEN Form 111 narrative for ${activeDraft.id}. Review and edit below.`,
+            type: 'success'
+          });
+        }
+      }
+    } catch (err) {
+      addToast({
+        title: 'Drafting Failed',
+        message: 'Could not draft narrative via AI proxy',
+        type: 'error'
+      });
+    } finally {
+      setIsDraftingAI(false);
+    }
+  };
 
   const handleSaveNarrative = () => {
     activeDraft.narrative = editedNarrative;
@@ -92,22 +153,10 @@ export const SARCenterView: React.FC = () => {
       className="w-full flex flex-col gap-6 pb-16"
     >
       {/* Header Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-light text-[var(--text)] tracking-tight">
-              SAR Filing & FinCEN Command Center
-            </h2>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--risk-red)]/20 text-[var(--risk-red)] font-mono font-medium border border-[var(--risk-red)]/30">
-              {sarDrafts.filter(d => d.status !== 'Filed').length} Pending Filings
-            </span>
-          </div>
-          <p className="text-xs text-[var(--muted)] mt-1 font-light">
-            Preparation, review, and electronic filing of Suspicious Activity Reports (Form 111) adhering to 31 U.S.C. 5318(g).
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="SAR Filing & FinCEN Command Center"
+        subtitle="Preparation, review, and electronic filing of Suspicious Activity Reports (Form 111) adhering to 31 U.S.C. 5318(g)."
+        actions={
           <button
             onClick={() => setIsNewModalOpen(true)}
             className="pill-btn-primary text-xs flex items-center gap-1.5"
@@ -115,14 +164,15 @@ export const SARCenterView: React.FC = () => {
             <Plus className="w-3.5 h-3.5" />
             <span>Create SAR Draft</span>
           </button>
-        </div>
-      </div>
+        }
+        showPeriodPicker={false}
+      />
 
       {/* Main Two-Column View: Drafts List & Formatted Preview */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Drafts Queue (5 cols) */}
         <div className="lg:col-span-4 space-y-3">
-          <div className="glass-panel p-4 border border-[var(--line)] flex items-center justify-between">
+          <div className="fintech-card p-4 border border-[var(--line)] flex items-center justify-between">
             <span className="text-xs font-mono font-semibold uppercase text-white">Active Filing Queue</span>
             <span className="label-small">{sarDrafts.length} Documents</span>
           </div>
@@ -130,15 +180,14 @@ export const SARCenterView: React.FC = () => {
           <div className="space-y-2">
             {sarDrafts.map((draft) => {
               const isSelected = draft.id === selectedDraftId;
-              const isUrgent = draft.status !== 'Filed';
 
               return (
                 <div
                   key={draft.id}
                   onClick={() => setSelectedDraftId(draft.id)}
-                  className={`glass-panel p-4 border transition-all cursor-pointer ${
+                  className={`fintech-card p-4 border transition-all cursor-pointer ${
                     isSelected
-                      ? 'border-white/40 bg-white/[0.05] shadow-lg'
+                      ? 'border-[var(--brand-orange)]/60 bg-white/[0.05] shadow-lg'
                       : 'border-[var(--line)] hover:border-white/20 hover:bg-white/[0.02]'
                   }`}
                 >
@@ -149,7 +198,7 @@ export const SARCenterView: React.FC = () => {
                     <span
                       className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
                         draft.status === 'Filed'
-                          ? 'bg-[var(--live)]/20 text-[var(--live)] border border-[var(--live)]/30'
+                          ? 'bg-[var(--risk-green)]/20 text-[var(--risk-green)] border border-[var(--risk-green)]/30'
                           : 'bg-[var(--risk-red)]/20 text-[var(--risk-red)] border border-[var(--risk-red)]/30'
                       }`}
                     >
@@ -165,11 +214,11 @@ export const SARCenterView: React.FC = () => {
                   </div>
 
                   <div className="flex items-center justify-between text-[11px] font-mono mt-3 pt-2.5 border-t border-[var(--line)]">
-                    <span className="text-[var(--sage-3)] font-bold">
+                    <span className="text-[var(--brand-orange)] font-bold">
                       {formatCurrency(draft.amount)}
                     </span>
                     <div className="flex items-center gap-1 text-[var(--muted)]">
-                      <Clock className="w-3 h-3 text-[var(--risk-amber)]" />
+                      <Clock className="w-3 h-3 text-[var(--risk-yellow)]" />
                       <span>Due: {new Date(draft.deadline).toLocaleDateString()}</span>
                     </div>
                   </div>
@@ -181,7 +230,7 @@ export const SARCenterView: React.FC = () => {
 
         {/* Right Column: FinCEN Formatted Document Preview (8 cols) */}
         {activeDraft && (
-          <div className="lg:col-span-8 glass-panel p-6 sm:p-8 border border-[var(--line)] space-y-6 print:border-none print:p-0">
+          <div className="lg:col-span-8 fintech-card p-6 sm:p-8 border border-[var(--line)] space-y-6 print:border-none print:p-0">
             {/* Document Header */}
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 border-b border-[var(--line)]">
               <div>
@@ -211,13 +260,13 @@ export const SARCenterView: React.FC = () => {
                 {activeDraft.status !== 'Filed' ? (
                   <button
                     onClick={handleSubmitSAR}
-                    className="pill-btn-primary text-xs flex items-center gap-1.5 bg-[var(--risk-red)] text-white hover:bg-[var(--risk-red)]/90"
+                    className="pill-btn-primary text-xs flex items-center gap-1.5"
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>File to FinCEN</span>
                   </button>
                 ) : (
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--live)]/20 text-[var(--live)] text-xs font-mono font-bold">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--risk-green)]/20 text-[var(--risk-green)] text-xs font-mono font-bold">
                     <CheckCircle2 className="w-4 h-4" />
                     <span>E-FILED CONFIRMED</span>
                   </div>
@@ -236,7 +285,7 @@ export const SARCenterView: React.FC = () => {
               <div className="p-3 rounded-xl bg-white/[0.02] border border-[var(--line)]">
                 <span className="text-[10px] text-[var(--muted)] uppercase block">Part II: Total Exposure</span>
                 <span className="text-white font-bold block mt-1">{formatCurrency(activeDraft.amount)}</span>
-                <span className="text-[11px] text-[var(--sage-3)]">Typology: {activeDraft.typology.toUpperCase()}</span>
+                <span className="text-[11px] text-[var(--brand-orange)]">Typology: {activeDraft.typology.toUpperCase()}</span>
               </div>
 
               <div className="p-3 rounded-xl bg-white/[0.02] border border-[var(--line)]">
@@ -250,36 +299,48 @@ export const SARCenterView: React.FC = () => {
             <div className="space-y-3">
               <div className="flex items-center justify-between pb-2 border-b border-[var(--line)]">
                 <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-[var(--sage-2)]" />
+                  <FileText className="w-4 h-4 text-[var(--brand-orange)]" />
                   <h4 className="text-sm font-medium text-white">
                     Part IV: Narrative Explanation of Suspicious Activity
                   </h4>
                 </div>
 
-                {!isEditingNarrative ? (
+                <div className="flex items-center gap-2 print:hidden">
                   <button
-                    onClick={() => setIsEditingNarrative(true)}
-                    className="pill-btn-secondary text-[11px] py-1 px-2.5 flex items-center gap-1 print:hidden"
+                    onClick={handleDraftWithAI}
+                    disabled={isDraftingAI}
+                    className="pill-btn-secondary text-[11px] py-1 px-3 flex items-center gap-1.5 border-[var(--brand-orange)]/30 text-[var(--brand-orange)] hover:text-white"
+                    title="Generate first-draft regulatory SAR narrative via Gemini AI"
                   >
-                    <Edit3 className="w-3 h-3" />
-                    <span>Edit Narrative</span>
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--brand-orange)]" />
+                    <span>{isDraftingAI ? 'Drafting...' : 'Draft with AI'}</span>
                   </button>
-                ) : (
-                  <div className="flex items-center gap-2">
+
+                  {!isEditingNarrative ? (
                     <button
-                      onClick={() => setIsEditingNarrative(false)}
-                      className="text-xs text-[var(--muted)] hover:text-white"
+                      onClick={() => setIsEditingNarrative(true)}
+                      className="pill-btn-secondary text-[11px] py-1 px-2.5 flex items-center gap-1"
                     >
-                      Cancel
+                      <Edit3 className="w-3 h-3" />
+                      <span>Edit Narrative</span>
                     </button>
-                    <button
-                      onClick={handleSaveNarrative}
-                      className="pill-btn-primary text-[11px] py-1 px-3"
-                    >
-                      Save
-                    </button>
-                  </div>
-                )}
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setIsEditingNarrative(false)}
+                        className="text-xs text-[var(--muted)] hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSaveNarrative}
+                        className="pill-btn-primary text-[11px] py-1 px-3"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {isEditingNarrative ? (
@@ -287,7 +348,7 @@ export const SARCenterView: React.FC = () => {
                   value={editedNarrative}
                   onChange={(e) => setEditedNarrative(e.target.value)}
                   rows={8}
-                  className="w-full p-4 rounded-xl glass-panel bg-transparent border border-[var(--line)] text-xs text-[var(--text)] font-mono leading-relaxed focus:outline-none focus:border-[var(--sage-2)]"
+                  className="w-full p-4 rounded-xl fintech-card bg-transparent border border-[var(--line)] text-xs text-[var(--text)] font-mono leading-relaxed focus:outline-none focus:border-[var(--brand-orange)]"
                 />
               ) : (
                 <div className="p-5 rounded-2xl bg-white/[0.02] border border-[var(--line)] text-xs text-[var(--text)] font-light leading-relaxed whitespace-pre-wrap">
@@ -298,7 +359,7 @@ export const SARCenterView: React.FC = () => {
 
             {/* Regulatory Certification Footer */}
             <div className="p-4 rounded-xl bg-white/[0.01] border border-[var(--line)] text-[11px] font-mono text-[var(--muted)] flex items-start gap-3">
-              <ShieldAlert className="w-4 h-4 text-[var(--sage-3)] shrink-0 mt-0.5" />
+              <ShieldAlert className="w-4 h-4 text-[var(--brand-orange)] shrink-0 mt-0.5" />
               <div>
                 <span className="text-white font-medium block">Mandatory Confidentiality Warning (31 U.S.C. 5318(g)(2))</span>
                 No financial institution, director, officer, employee, or agent of any financial institution shall disclose to any person involved in the transaction that the transaction has been reported.
@@ -308,13 +369,25 @@ export const SARCenterView: React.FC = () => {
         )}
       </div>
 
-      {/* Create New Draft Modal */}
-      {isNewModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
-          <div className="glass-panel p-6 border border-white/20 w-full max-w-md shadow-2xl bg-[#0B0F0D]">
-            <h3 className="text-base font-medium text-white mb-1">
-              Initialize New SAR Draft
-            </h3>
+      {/* Create New Draft Modal - Portaled to document.body */}
+      {isNewModalOpen && createPortal(
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+          <div 
+            ref={newDraftModalRef}
+            className="fintech-card p-6 border border-white/20 w-full max-w-md shadow-2xl bg-[#111113]"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-base font-medium text-white">
+                Initialize New SAR Draft
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsNewModalOpen(false)}
+                className="text-[var(--muted)] hover:text-white p-1 rounded-md transition-colors text-xs font-mono"
+              >
+                ✕
+              </button>
+            </div>
             <p className="text-xs text-[var(--muted)] mb-4 font-light">
               Select a flagged compliance case to populate FinCEN Form 111 with automated narrative attribution.
             </p>
@@ -325,11 +398,11 @@ export const SARCenterView: React.FC = () => {
                 <select
                   value={newCaseId}
                   onChange={(e) => setNewCaseId(e.target.value)}
-                  className="w-full glass-panel px-3 py-2 text-xs text-white bg-transparent border border-[var(--line)] rounded-xl focus:outline-none cursor-pointer"
+                  className="w-full px-3 py-2 text-xs text-white bg-[#141416] border border-[var(--line)] rounded-xl focus:outline-none cursor-pointer"
                 >
-                  <option value="" className="bg-[#0B0F0D]">Select elevated risk case...</option>
+                  <option value="" className="bg-[#141416]">Select elevated risk case...</option>
                   {transactions.filter(t => t.riskScore >= 70).slice(0, 15).map(t => (
-                    <option key={t.id} value={t.id} className="bg-[#0B0F0D]">
+                    <option key={t.id} value={t.id} className="bg-[#141416]">
                       #{t.id} - ${t.amount.toLocaleString()} ({t.typologyLabel})
                     </option>
                   ))}
@@ -353,7 +426,8 @@ export const SARCenterView: React.FC = () => {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </motion.div>
   );

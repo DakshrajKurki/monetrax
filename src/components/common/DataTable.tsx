@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
+import { useOnClickOutside } from '../../hooks/useOnClickOutside';
 import { 
   ChevronUp, 
   ChevronDown, 
@@ -56,6 +57,13 @@ export function DataTable<T extends Record<string, any>>({
     return new Set(columns.filter(c => c.defaultVisible !== false).map(c => c.key));
   });
   const [showColMenu, setShowColMenu] = useState(false);
+  const colMenuRef = useRef<HTMLDivElement>(null);
+  const colBtnRef = useRef<HTMLButtonElement>(null);
+
+  useOnClickOutside(colMenuRef, () => setShowColMenu(false), {
+    enabled: showColMenu,
+    ignoreRefs: [colBtnRef]
+  });
 
   // Sorting
   const sortedData = useMemo(() => {
@@ -164,6 +172,7 @@ export function DataTable<T extends Record<string, any>>({
           {/* Column Visibility Selector */}
           <div className="relative">
             <button
+              ref={colBtnRef}
               onClick={() => setShowColMenu(!showColMenu)}
               className="pill-btn-secondary text-[11px] flex items-center gap-1.5 px-3 py-1"
               title="Show / hide columns"
@@ -173,7 +182,10 @@ export function DataTable<T extends Record<string, any>>({
             </button>
 
             {showColMenu && (
-              <div className="absolute right-0 top-full mt-2 w-48 glass-panel p-2 z-40 shadow-2xl border border-[var(--line)] flex flex-col gap-1 text-xs">
+              <div 
+                ref={colMenuRef}
+                className="absolute right-0 top-full mt-2 w-48 glass-panel p-2 z-40 shadow-2xl border border-[var(--line)] flex flex-col gap-1 text-xs"
+              >
                 <span className="text-[10px] text-[var(--muted)] uppercase font-mono px-2 py-1">Toggle Columns</span>
                 {columns.map(c => (
                   <label key={c.key} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white/[0.05] cursor-pointer text-[var(--text)]">
@@ -203,10 +215,10 @@ export function DataTable<T extends Record<string, any>>({
       </div>
 
       {/* Main Table Container */}
-      <div className="w-full overflow-x-auto rounded-[20px] glass-panel border border-[var(--line)]">
+      <div className="w-full overflow-x-auto rounded-[16px] fintech-card border border-white/[0.08]">
         <table className="w-full text-left text-xs border-collapse font-sans">
           {/* Sticky Header */}
-          <thead className="sticky top-0 z-20 bg-[#0B0F0D]/95 backdrop-blur-md border-b border-[var(--line)]">
+          <thead className="sticky top-0 z-20 bg-[#141417]/95 backdrop-blur-md border-b border-white/[0.08]">
             <tr>
               {activeColumns.map(col => {
                 const isSorted = sortKey === col.key;
@@ -221,7 +233,7 @@ export function DataTable<T extends Record<string, any>>({
                       {col.sortable !== false && (
                         <span className="flex flex-col text-[10px]">
                           {isSorted ? (
-                            sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-[var(--sage-2)]" /> : <ChevronDown className="w-3 h-3 text-[var(--sage-2)]" />
+                            sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-[#FF6A2B]" /> : <ChevronDown className="w-3 h-3 text-[#FF6A2B]" />
                           ) : (
                             <span className="w-3 h-3 opacity-25">↕</span>
                           )}
@@ -235,7 +247,7 @@ export function DataTable<T extends Record<string, any>>({
           </thead>
 
           {/* Body */}
-          <tbody className="divide-y divide-[var(--line)]">
+          <tbody className="divide-y divide-white/[0.04]">
             {isLoading ? (
               // Skeleton rows
               Array.from({ length: 6 }).map((_, i) => (
@@ -281,7 +293,7 @@ export function DataTable<T extends Record<string, any>>({
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3, delay: Math.min(idx * 0.04, 0.4) }}
                     onClick={() => onRowClick && onRowClick(row)}
-                    className={`transition-colors group ${isSelected ? 'bg-white/[0.07] border-l-2 border-l-[var(--sage-2)]' : 'hover:bg-white/[0.03]'} ${onRowClick ? 'cursor-pointer' : ''}`}
+                    className={`transition-colors group ${isSelected ? 'bg-gradient-to-r from-[#FF6A2B]/15 to-transparent border-l-2 border-l-[#FF6A2B]' : 'hover:bg-white/[0.03]'} ${onRowClick ? 'cursor-pointer' : ''}`}
                   >
                     {activeColumns.map(col => (
                       <td key={col.key} className={`${py} px-4 text-[var(--text)] font-sans ${col.className || ''}`}>

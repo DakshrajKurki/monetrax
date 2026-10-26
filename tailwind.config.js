@@ -9,20 +9,28 @@ export default {
       colors: {
         bg: 'var(--bg)',
         stage: 'var(--stage)',
+        sidebar: 'var(--sidebar)',
         line: 'var(--line)',
         text: 'var(--text)',
         muted: 'var(--muted)',
-        sage: {
-          1: 'var(--sage-1)',
-          2: 'var(--sage-2)',
-          3: 'var(--sage-3)',
-          DEFAULT: 'var(--sage-2)',
+        caption: 'var(--caption)',
+        brand: {
+          orange: '#FF6A2B',
+          deep: '#FF4D1A',
+          DEFAULT: '#FF6A2B',
+          glow: 'rgba(255, 106, 43, 0.25)',
+        },
+        card: {
+          DEFAULT: 'var(--card-bg)',
+          border: 'var(--card-border)',
         },
         risk: {
-          amber: 'var(--risk-amber)',
-          red: 'var(--risk-red)',
-          live: 'var(--live)',
-          mint: 'var(--live)',
+          red: '#E5484D',
+          amber: '#F5C04A',
+          yellow: '#F5C04A',
+          green: '#4ADE9A',
+          live: '#4ADE9A',
+          mint: '#4ADE9A',
         }
       },
       fontFamily: {
@@ -30,14 +38,17 @@ export default {
         mono: ['"JetBrains Mono"', 'SF Mono', 'Menlo', 'monospace']
       },
       borderRadius: {
-        'stage': '32px',
-        'panel': '24px',
+        'card': '16px',
+        'item': '12px',
         'pill': '999px',
+        'stage': '24px',
+        'panel': '16px',
       },
       boxShadow: {
-        'stage-frame': '0 30px 80px rgba(0, 0, 0, 0.9), inset 0 1px 1px rgba(255, 255, 255, 0.08)',
-        'glass-panel': '0 16px 40px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.06)',
-        'pill-nav': '0 12px 35px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.1)',
+        'brand': '0 4px 20px rgba(255, 106, 43, 0.35)',
+        'brand-glow': '0 0 25px rgba(255, 106, 43, 0.45)',
+        'card': '0 16px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06)',
+        'dropdown': '0 20px 50px rgba(0, 0, 0, 0.7), 0 0 1px 1px rgba(255, 255, 255, 0.1)',
       }
     },
   },
