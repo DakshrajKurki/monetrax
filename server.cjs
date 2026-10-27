@@ -8,7 +8,7 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
-const GEMINI_MODEL = 'gemini-1.5-flash';
+const GEMINI_MODEL = 'gemini-3.6-flash';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 
 // In-memory cache for repeated queries
@@ -478,7 +478,7 @@ PART IV: INSTITUTIONAL ACTIONS TAKEN & LAW ENFORCEMENT RECOMMENDATION`;
       });
 
       if (response.text) {
-        return res.json({ narrative: response.text, source: 'gemini-1.5-flash' });
+        return res.json({ narrative: response.text, source: 'gemini-3.6-flash' });
       }
     } catch (err) {
       console.warn('Gemini SAR drafting failed, falling back to local regulatory template:', err.message);
@@ -522,7 +522,7 @@ Return JSON matching:
       });
 
       const parsed = JSON.parse(response.text || '{}');
-      return res.json({ ...parsed, source: 'gemini-1.5-flash' });
+      return res.json({ ...parsed, source: 'gemini-3.6-flash' });
     } catch (err) {
       console.warn('Gemini explain_score failed, using local breakdown:', err.message);
     }
