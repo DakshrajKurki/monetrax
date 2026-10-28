@@ -249,15 +249,41 @@ export function generateFallbackRiskyReply(message = '', screen = '/', selectedC
     };
   }
 
-  if (selectedCase) {
+  if (msgLower.includes('anomal') || msgLower.includes('current window') || msgLower.includes('window')) {
+    const corridor = selectedCase?.corridor || (selectedCase?.fromCity ? `${selectedCase.fromCity} ➔ ${selectedCase.toCity}` : 'London ➔ Zurich');
     return {
-      text: `Case #${selectedCase.id} is flagged with a Unified Risk Score of ${Number(selectedCase.riskScore).toFixed(1)}/100 (${selectedCase.typologyLabel}). The transaction involves $${Number(selectedCase.amount).toLocaleString()} routed from ${selectedCase.fromCity} to ${selectedCase.toCity}. Primary driver is ${selectedCase.whyRanked || 'structuring threshold evasion and high volume velocity'}. You can ask me to draft a SAR, fly to this location on the map, or project counterfactuals.`,
-      sources: ['Unified Risk Scorer (XGBoost + IF)', `Corridor: ${selectedCase.fromCity} ➔ ${selectedCase.toCity}`]
+      text: `Current surveillance window isolated elevated risk clusters dominated by structuring and rapid velocity spikes:\n\n- Sub-threshold transfers deliberately avoiding reporting thresholds\n- Transaction velocity z-score exceeding +3.4 standard deviations\n- Active fund layering across corridor ${corridor}\n\nSuggested next action: Open the case queue to review high-priority alerts.`,
+      sources: ['Monetrax Surveillance Core', 'Stream Telemetry (1,420 tx/min)']
+    };
+  }
+
+  if (msgLower.includes('driving') || msgLower.includes('structuring')) {
+    const drivers = Array.isArray(selectedCase?.topDrivers)
+      ? selectedCase.topDrivers.join(', ')
+      : (selectedCase?.whyRanked || 'sub-threshold cash deposits, velocity z-score +3.4, and a new unverified counterparty');
+    return {
+      text: `The structuring alert is primarily driven by ${drivers}. Transaction amounts sit just beneath statutory reporting thresholds to evade Currency Transaction Reports.\n\nSuggested next action: Open case details to review linked counterparty deposits.`,
+      sources: ['SHAP Feature Attribution', 'Unified Risk Scorer (87/100)']
+    };
+  }
+
+  if (selectedCase) {
+    const scoreVal = selectedCase.score ?? selectedCase.riskScore ?? 87;
+    const typVal = selectedCase.typology || selectedCase.typologyLabel || 'Structuring';
+    const amtVal = selectedCase.amount ? Number(selectedCase.amount).toLocaleString() : '9,450';
+    const corridorVal = selectedCase.corridor || (selectedCase.fromCity ? `${selectedCase.fromCity} ➔ ${selectedCase.toCity}` : 'London ➔ Zurich');
+    const drivers = Array.isArray(selectedCase.topDrivers)
+      ? selectedCase.topDrivers.join(', ')
+      : (selectedCase.whyRanked || 'structuring threshold evasion and high volume velocity');
+
+    return {
+      text: `Case #${selectedCase.id || 'TXN-94021'} is flagged with Unified Risk Score ${scoreVal}/100 (${typVal}). Amount $${amtVal} routed via ${corridorVal}. Primary driver: ${drivers}.\n\nSuggested next action: Open case details or request counterfactual projection.`,
+      sources: ['Unified Risk Scorer (XGBoost + IF)', `Corridor: ${corridorVal}`]
     };
   }
 
   return {
-    text: "I am actively analyzing the transaction stream and compliance queue. You can ask me to evaluate any case, run bulk auto-triage on false positives, draft a SAR report with AI, screen counterparties against OFAC, or fly to suspicious corridors on the 3D globe.",
+    text: "I am actively monitoring stream anomalies and feature attributions. Ask me to explain alert drivers, fly to suspicious corridors, or review the case queue.\n\nSuggested next action: Inspect the highest-risk case in the queue.",
     sources: ['Monetrax Surveillance Core', 'Stream Telemetry (1,420 tx/min)']
   };
 }

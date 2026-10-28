@@ -192,15 +192,41 @@ function generateFallbackRiskyReply(message = '', screen = '/', selectedCase = n
     };
   }
 
-  if (selectedCase) {
+  if (msgLower.includes('anomal') || msgLower.includes('current window') || msgLower.includes('window')) {
+    const corridor = selectedCase?.corridor || (selectedCase?.fromCity ? `${selectedCase.fromCity} ➔ ${selectedCase.toCity}` : 'London ➔ Zurich');
     return {
-      text: `Case #${selectedCase.id} is flagged with a Unified Risk Score of ${Number(selectedCase.riskScore).toFixed(1)}/100 (${selectedCase.typologyLabel}). The transaction involves $${Number(selectedCase.amount).toLocaleString()} routed from ${selectedCase.fromCity} to ${selectedCase.toCity}. Primary driver is ${selectedCase.whyRanked || 'structuring threshold evasion and high volume velocity'}. You can ask me to draft a SAR, fly to this location on the map, or project counterfactuals.`,
-      sources: ['Unified Risk Scorer (XGBoost + IF)', `Corridor: ${selectedCase.fromCity} ➔ ${selectedCase.toCity}`]
+      text: `Current surveillance window isolated elevated risk clusters dominated by structuring and rapid velocity spikes:\n\n- Sub-threshold transfers deliberately avoiding reporting thresholds\n- Transaction velocity z-score exceeding +3.4 standard deviations\n- Active fund layering across corridor ${corridor}\n\nSuggested next action: Open the case queue to review high-priority alerts.`,
+      sources: ['Monetrax Surveillance Core', 'Stream Telemetry (1,420 tx/min)']
+    };
+  }
+
+  if (msgLower.includes('driving') || msgLower.includes('structuring')) {
+    const drivers = Array.isArray(selectedCase?.topDrivers)
+      ? selectedCase.topDrivers.join(', ')
+      : (selectedCase?.whyRanked || 'sub-threshold cash deposits, velocity z-score +3.4, and a new unverified counterparty');
+    return {
+      text: `The structuring alert is primarily driven by ${drivers}. Transaction amounts sit just beneath statutory reporting thresholds to evade Currency Transaction Reports.\n\nSuggested next action: Open case details to review linked counterparty deposits.`,
+      sources: ['SHAP Feature Attribution', 'Unified Risk Scorer (87/100)']
+    };
+  }
+
+  if (selectedCase) {
+    const scoreVal = selectedCase.score ?? selectedCase.riskScore ?? 87;
+    const typVal = selectedCase.typology || selectedCase.typologyLabel || 'Structuring';
+    const amtVal = selectedCase.amount ? Number(selectedCase.amount).toLocaleString() : '9,450';
+    const corridorVal = selectedCase.corridor || (selectedCase.fromCity ? `${selectedCase.fromCity} ➔ ${selectedCase.toCity}` : 'London ➔ Zurich');
+    const drivers = Array.isArray(selectedCase.topDrivers)
+      ? selectedCase.topDrivers.join(', ')
+      : (selectedCase.whyRanked || 'structuring threshold evasion and high volume velocity');
+
+    return {
+      text: `Case #${selectedCase.id || 'TXN-94021'} is flagged with Unified Risk Score ${scoreVal}/100 (${typVal}). Amount $${amtVal} routed via ${corridorVal}. Primary driver: ${drivers}.\n\nSuggested next action: Open case details or request counterfactual projection.`,
+      sources: ['Unified Risk Scorer (XGBoost + IF)', `Corridor: ${corridorVal}`]
     };
   }
 
   return {
-    text: "I am actively analyzing the transaction stream and compliance queue. You can ask me to evaluate any case, run bulk auto-triage on false positives, draft a SAR report with AI, screen counterparties against OFAC, or fly to suspicious corridors on the 3D globe.",
+    text: "I am actively monitoring stream anomalies and feature attributions. Ask me to explain alert drivers, fly to suspicious corridors, or review the case queue.\n\nSuggested next action: Inspect the highest-risk case in the queue.",
     sources: ['Monetrax Surveillance Core', 'Stream Telemetry (1,420 tx/min)']
   };
 }
@@ -617,20 +643,32 @@ app.post('/api/ai/risky', async (req, res) => {
           ]
         }];
 
-        // Build context incorporating real features of the active selected case
+        // Build context incorporating real features of the active selected case (only essential fields)
         let caseContext = '';
         if (selectedCase) {
-          const featStr = JSON.stringify(selectedCase.features || {});
+          const caseId = selectedCase.id || 'N/A';
+          const score = selectedCase.score ?? selectedCase.riskScore ?? 'N/A';
+          const typology = selectedCase.typology || selectedCase.typologyLabel || 'Unknown';
+          const amount = selectedCase.amount ? `$${Number(selectedCase.amount).toLocaleString()} USD` : 'N/A';
+          const corridor = selectedCase.corridor || (selectedCase.fromCity ? `${selectedCase.fromCity} ➔ ${selectedCase.toCity}` : 'N/A');
+
+          let drivers = 'Elevated risk indicators';
+          if (Array.isArray(selectedCase.topDrivers) && selectedCase.topDrivers.length > 0) {
+            drivers = selectedCase.topDrivers.slice(0, 3).join(', ');
+          } else if (Array.isArray(selectedCase.factors) && selectedCase.factors.length > 0) {
+            drivers = selectedCase.factors.slice(0, 3).map(f => f.label || f.name || String(f)).join(', ');
+          } else if (selectedCase.features && typeof selectedCase.features === 'object') {
+            drivers = Object.entries(selectedCase.features).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(', ');
+          }
+
           caseContext = `
-ACTIVE CASE TELEMETRY & ATTRIBUTIONS:
-- Case ID: #${selectedCase.id}
-- Unified Risk Score: ${selectedCase.riskScore}/100
-- Typology: ${selectedCase.typologyLabel || selectedCase.typology}
-- Amount: $${Number(selectedCase.amount || 0).toLocaleString()} USD
-- Corridor: ${selectedCase.fromCity || 'Origin'} ➔ ${selectedCase.toCity || 'Destination'}
-- Anomaly Attributions & SHAP Features: ${featStr}
-- Ranked Reason: ${selectedCase.whyRanked || 'Model confidence trigger'}
-- Recommended Action: ${selectedCase.suggestedAction || 'Review'}`;
+ACTIVE CASE:
+- Case ID: #${caseId}
+- Unified Risk Score: ${score}/100
+- Typology: ${typology}
+- Amount: ${amount}
+- Corridor: ${corridor}
+- Top 3 Drivers: ${drivers}`;
         }
 
         // Build multi-turn contents
@@ -647,40 +685,73 @@ ACTIVE CASE TELEMETRY & ATTRIBUTIONS:
           parts: [{ text: `${message}${caseContext ? `\n\n[System Context: ${caseContext}]` : ''}` }]
         });
 
-        const systemInstruction = `You are Risky, an expert autonomous AI compliance copilot for Monetrax.
-You assist BSA/AML compliance officers in monitoring high-risk transaction streams, explaining model attributions, and taking immediate investigation actions.
-When discussing cases, strictly reference the active case's real feature metrics (structuring score, velocity z-score, flow imbalance, amount).
-When the user requests an action (such as opening a case, flying to a corridor/globe location, drafting a SAR, screening an entity, replaying network hops, or running auto-triage), invoke the appropriate function call tool. Keep responses concise, analytical, and professional.`;
+        const systemInstruction = `You are Risky, an AML copilot. Answer in at most 60 words, or at most 4 short bullet points. Lead with the direct answer. Do not repeat the case summary or list every feature value unless asked. End with one short suggested next action. Never use markdown symbols such as ** or ###.
+When the user explicitly requests an action (such as opening a case, flying to a corridor/globe location, drafting a SAR, screening an entity, replaying network hops, or running auto-triage), invoke the appropriate function call tool. Otherwise, provide direct analytical answers without calling tools.`;
 
-        const response = await ai.models.generateContent({
-          model: GEMINI_MODEL,
-          contents,
-          config: {
-            systemInstruction,
-            temperature: 0.25,
-            tools
+        // Candidate models for graceful fallback if primary model hits quota/rate-limit
+        const candidateModels = [GEMINI_MODEL, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'].filter((m, i, arr) => arr.indexOf(m) === i);
+        let response = null;
+        let usedModel = GEMINI_MODEL;
+
+        for (const m of candidateModels) {
+          try {
+            const config = {
+              systemInstruction,
+              temperature: 0.4,
+              maxOutputTokens: 350,
+              tools
+            };
+            if (!m.includes('lite')) {
+              config.thinkingConfig = { thinkingBudget: 0 };
+            }
+            response = await ai.models.generateContent({
+              model: m,
+              contents,
+              config
+            });
+            usedModel = m;
+            break;
+          } catch (mErr) {
+            console.warn(`Gemini model ${m} failed:`, mErr.message);
+            if (mErr.status === 429 || mErr.status === 404 || mErr.status === 503) {
+              continue;
+            }
+            throw mErr;
           }
-        });
+        }
+
+        if (!response) {
+          throw new Error('All Gemini candidate models failed');
+        }
 
         const candidate = response.candidates?.[0];
         let toolCall = null;
+        let replyText = '';
         if (candidate?.content?.parts) {
           for (const part of candidate.content.parts) {
+            if (part.text) {
+              replyText += part.text;
+            }
             if (part.functionCall) {
               toolCall = {
                 name: part.functionCall.name,
                 arguments: part.functionCall.args || {}
               };
-              break;
             }
           }
         }
 
-        const replyText = response.text || (toolCall ? `Executing ${toolCall.name.replace(/_/g, ' ')}...` : "Analysis completed.");
+        if (!replyText.trim()) {
+          replyText = response.text || (toolCall ? `Executing ${toolCall.name.replace(/_/g, ' ')}...` : "Analysis completed.");
+        }
+
+        // Sanitize text to remove raw markdown symbols (** or ###)
+        replyText = replyText.replace(/\*\*/g, '').replace(/^#{1,6}\s*/gm, '').trim();
+
         return res.json({
           text: replyText,
           toolCall,
-          sources: [`${GEMINI_MODEL} (Live Reasoning)`, 'Monetrax Feature Attribution'],
+          sources: [`${usedModel} (Live Reasoning)`, 'Monetrax Feature Attribution'],
           source: 'gemini'
         });
       } catch (err) {

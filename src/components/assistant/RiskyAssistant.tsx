@@ -26,6 +26,87 @@ interface ChatMessage {
   };
 }
 
+// Helper to render bold text and strip any stray ** or * symbols
+const renderInlineText = (text: string): React.ReactNode => {
+  if (!text) return null;
+  const parts = text.split(/(\*\*[^*]+?\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      const inner = part.slice(2, -2).replace(/\*/g, '');
+      return (
+        <strong key={i} className="font-semibold text-white">
+          {inner}
+        </strong>
+      );
+    }
+    // Clean any remaining stray ** or *
+    const cleaned = part.replace(/\*\*/g, '').replace(/\*/g, '');
+    return <React.Fragment key={i}>{cleaned}</React.Fragment>;
+  });
+};
+
+// Helper to render clean structured paragraphs and real bullet lists (<ul><li>)
+const renderFormattedMessage = (text: string): React.ReactNode => {
+  if (!text) return null;
+  // Clean markdown headers like ### or ##
+  const cleaned = text.replace(/^#{1,6}\s+/gm, '').trim();
+  const lines = cleaned.split('\n');
+  const blocks: Array<{ type: 'paragraph' | 'list'; items?: string[]; text?: string }> = [];
+  let currentList: string[] | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (currentList) {
+        blocks.push({ type: 'list', items: currentList });
+        currentList = null;
+      }
+      continue;
+    }
+
+    // Match bullet point (- , * , • , 1. , etc.)
+    const bulletMatch = trimmed.match(/^([-*•]|\d+\.)\s+(.+)$/);
+    if (bulletMatch) {
+      if (!currentList) currentList = [];
+      currentList.push(bulletMatch[2]);
+    } else {
+      if (currentList) {
+        blocks.push({ type: 'list', items: currentList });
+        currentList = null;
+      }
+      blocks.push({ type: 'paragraph', text: trimmed });
+    }
+  }
+
+  if (currentList) {
+    blocks.push({ type: 'list', items: currentList });
+  }
+
+  return (
+    <div className="space-y-1.5 text-xs leading-relaxed">
+      {blocks.map((block, idx) => {
+        if (block.type === 'list' && block.items) {
+          return (
+            <ul key={idx} className="space-y-1 my-1 pl-0.5">
+              {block.items.map((item, itemIdx) => (
+                <li key={itemIdx} className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#FF6A2B] mt-1.5 shrink-0" />
+                  <span className="leading-snug">{renderInlineText(item)}</span>
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        return (
+          <p key={idx} className="leading-relaxed">
+            {renderInlineText(block.text || '')}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
+
 export const RiskyAssistant: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -66,8 +147,11 @@ export const RiskyAssistant: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isThinking]);
+    const timer = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [messages, isThinking, isOpen]);
 
   // Contextual prompts per route
   const contextualPrompts = useMemo(() => {
@@ -149,28 +233,28 @@ export const RiskyAssistant: React.FC = () => {
     setIsThinking(true);
 
     try {
+      const topDrivers = (activeTxn?.factors || [])
+        .slice(0, 3)
+        .map(f => f.label || String(f));
+
       const res = await fetch('/api/ai/risky', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
           screen: pathname,
-          history: messages.slice(-10).map(m => ({
+          history: messages.slice(-6).map(m => ({
             sender: m.sender,
             text: m.text
           })),
-          selectedCase: {
+          selectedCase: activeTxn ? {
             id: activeTxn.id,
-            riskScore: activeTxn.riskScore,
-            typology: activeTxn.typology,
-            typologyLabel: activeTxn.typologyLabel,
-            features: activeTxn.features,
+            score: activeTxn.riskScore,
+            typology: activeTxn.typologyLabel || activeTxn.typology,
             amount: activeTxn.amount,
-            fromCity: activeTxn.fromCity,
-            toCity: activeTxn.toCity,
-            whyRanked: activeTxn.whyRanked,
-            suggestedAction: activeTxn.suggestedAction
-          }
+            corridor: `${activeTxn.fromCity} ➔ ${activeTxn.toCity}`,
+            topDrivers
+          } : null
         })
       });
 
@@ -326,7 +410,7 @@ export const RiskyAssistant: React.FC = () => {
                       : 'bg-white/[0.04] border border-white/[0.08] text-[#F5F5F6] font-normal rounded-2xl rounded-bl-sm backdrop-blur-sm'
                   }`}
                 >
-                  <p className="leading-relaxed">{m.text}</p>
+                  {renderFormattedMessage(m.text)}
 
                   {/* Tool Call Action Pill */}
                   {m.toolCall && (
@@ -396,16 +480,21 @@ export const RiskyAssistant: React.FC = () => {
             ))}
 
             {isThinking && (
-              <div className="flex items-center gap-2 text-xs text-[#FF6A2B] font-mono animate-pulse p-2">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Investigating stream indicators...</span>
+              <div className="flex items-center gap-2.5 p-3 rounded-2xl rounded-bl-sm bg-white/[0.04] border border-white/[0.08] text-[#FF6A2B] max-w-[88%]">
+                <Sparkles className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '3s' }} />
+                <span className="text-xs text-[var(--muted)] font-mono">Risky is analyzing...</span>
+                <div className="flex items-center gap-1 ml-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#FF6A2B] animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#FF6A2B] animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#FF6A2B] animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
               </div>
             )}
             <div ref={messagesEndRef} />
           </div>
 
           {/* Contextual Suggested Prompt Chips */}
-          <div className="pt-2 border-t border-white/[0.08] flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none">
+          <div className="pt-2 border-t border-white/[0.08] flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none shrink-0">
             {contextualPrompts.map((prompt, i) => (
               <button
                 key={i}
@@ -423,7 +512,7 @@ export const RiskyAssistant: React.FC = () => {
               e.preventDefault();
               handleSendMessage();
             }}
-            className="relative flex items-center gap-2 pt-1"
+            className="relative flex items-center gap-2 pt-1 shrink-0"
           >
             <input
               type="text"
