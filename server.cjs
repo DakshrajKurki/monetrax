@@ -8,7 +8,7 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
-const GEMINI_MODEL = 'gemini-3.6-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 
 // In-memory cache for repeated queries
@@ -534,6 +534,7 @@ Return JSON matching:
 
 // 5. Risky Assistant Multi-Turn Reasoning & Function Calling
 app.post('/api/ai/risky', async (req, res) => {
+  let fallbackReason = null;
   try {
     const { message = '', screen = '/', selectedCase = null, history = [] } = req.body || {};
 
@@ -616,9 +617,24 @@ app.post('/api/ai/risky', async (req, res) => {
           ]
         }];
 
+        // Build context incorporating real features of the active selected case
+        let caseContext = '';
+        if (selectedCase) {
+          const featStr = JSON.stringify(selectedCase.features || {});
+          caseContext = `
+ACTIVE CASE TELEMETRY & ATTRIBUTIONS:
+- Case ID: #${selectedCase.id}
+- Unified Risk Score: ${selectedCase.riskScore}/100
+- Typology: ${selectedCase.typologyLabel || selectedCase.typology}
+- Amount: $${Number(selectedCase.amount || 0).toLocaleString()} USD
+- Corridor: ${selectedCase.fromCity || 'Origin'} ➔ ${selectedCase.toCity || 'Destination'}
+- Anomaly Attributions & SHAP Features: ${featStr}
+- Ranked Reason: ${selectedCase.whyRanked || 'Model confidence trigger'}
+- Recommended Action: ${selectedCase.suggestedAction || 'Review'}`;
+        }
+
         // Build multi-turn contents
         const contents = [];
-        // Add recent conversation history (up to last 6 messages)
         const recentHistory = Array.isArray(history) ? history.slice(-6) : [];
         for (const h of recentHistory) {
           contents.push({
@@ -626,21 +642,22 @@ app.post('/api/ai/risky', async (req, res) => {
             parts: [{ text: h.text }]
           });
         }
-        // Current user message
-        const caseContext = selectedCase ? ` [Current active case in view: #${selectedCase.id}, amount $${selectedCase.amount}, typology ${selectedCase.typologyLabel}, corridor ${selectedCase.fromCity} to ${selectedCase.toCity}, risk ${selectedCase.riskScore}/100]` : '';
         contents.push({
           role: 'user',
-          parts: [{ text: `${message}${caseContext}` }]
+          parts: [{ text: `${message}${caseContext ? `\n\n[System Context: ${caseContext}]` : ''}` }]
         });
 
-        const systemInstruction = "You are Risky, an expert autonomous AI compliance copilot for Monetrax. Provide thoughtful, concise multi-turn reasoning about AML transactions and sanctions. When the user asks you to take an action (open a case, fly to location/globe, draft a SAR, screen an entity, replay network, or run auto-triage), invoke the appropriate function call.";
+        const systemInstruction = `You are Risky, an expert autonomous AI compliance copilot for Monetrax.
+You assist BSA/AML compliance officers in monitoring high-risk transaction streams, explaining model attributions, and taking immediate investigation actions.
+When discussing cases, strictly reference the active case's real feature metrics (structuring score, velocity z-score, flow imbalance, amount).
+When the user requests an action (such as opening a case, flying to a corridor/globe location, drafting a SAR, screening an entity, replaying network hops, or running auto-triage), invoke the appropriate function call tool. Keep responses concise, analytical, and professional.`;
 
         const response = await ai.models.generateContent({
           model: GEMINI_MODEL,
           contents,
           config: {
             systemInstruction,
-            temperature: 0.3,
+            temperature: 0.25,
             tools
           }
         });
@@ -663,21 +680,31 @@ app.post('/api/ai/risky', async (req, res) => {
         return res.json({
           text: replyText,
           toolCall,
-          sources: ['Gemini 1.5 Flash (Live Reasoning)', 'Monetrax Knowledge Engine']
+          sources: [`${GEMINI_MODEL} (Live Reasoning)`, 'Monetrax Feature Attribution'],
+          source: 'gemini'
         });
       } catch (err) {
         console.warn('Gemini risky call failed, falling back to local reasoning:', err.message);
+        fallbackReason = err.message;
       }
+    } else {
+      fallbackReason = 'GEMINI_API_KEY environment variable not configured';
     }
 
     // High-fidelity multi-turn fallback
     const reply = generateFallbackRiskyReply(message, screen, selectedCase, history);
-    res.json(reply);
+    res.json({
+      ...reply,
+      source: 'fallback',
+      fallbackReason: fallbackReason || 'Gemini API key not configured or call failed'
+    });
   } catch (err) {
     console.error('Error in /api/ai/risky:', err);
     res.json({
       text: "Surveillance analysis indicates active pattern verification against baseline transaction distributions.",
-      sources: ['Fallback Model Engine']
+      sources: ['Fallback Model Engine'],
+      source: 'fallback',
+      fallbackReason: err.message
     });
   }
 });

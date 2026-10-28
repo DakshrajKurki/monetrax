@@ -17,6 +17,8 @@ interface ChatMessage {
   text: string;
   timestamp: string;
   sources?: string[];
+  source?: 'gemini' | 'fallback';
+  fallbackReason?: string;
   toolCall?: {
     name: string;
     arguments: any;
@@ -55,7 +57,8 @@ export const RiskyAssistant: React.FC = () => {
       sender: 'risky',
       text: "Investigator online. I'm actively monitoring the 1,420 tx/min stream and XGBoost + IF feature attributions. How can I assist with your surveillance queue?",
       timestamp: 'Now',
-      sources: ['Monetrax Surveillance Core', '0.83 PR-AUC Model']
+      sources: ['Monetrax Surveillance Core', '0.83 PR-AUC Model'],
+      source: 'gemini'
     }
   ]);
   const [inputText, setInputText] = useState<string>('');
@@ -179,11 +182,13 @@ export const RiskyAssistant: React.FC = () => {
           text: data.text,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           sources: data.sources || ['Local AML Feature Attribution'],
+          source: data.source || 'gemini',
+          fallbackReason: data.fallbackReason,
           toolCall: data.toolCall
         };
         setMessages(prev => [...prev, riskyReply]);
       } else {
-        throw new Error('Non-ok response');
+        throw new Error(`Server returned HTTP ${res.status}`);
       }
     } catch (e) {
       setMessages(prev => [
@@ -193,7 +198,9 @@ export const RiskyAssistant: React.FC = () => {
           sender: 'risky',
           text: `Surveillance indicators for ${activeTxn.id} reflect an elevated ${activeTxn.typologyLabel}. Features are consistent with obfuscated fund routing across ${activeTxn.fromCity} and ${activeTxn.toCity}.`,
           timestamp: 'Just now',
-          sources: ['Ensemble Scoring Engine', 'Offline Fallback']
+          sources: ['Ensemble Scoring Engine', 'Offline Fallback'],
+          source: 'fallback',
+          fallbackReason: e instanceof Error ? e.message : 'Connection failed'
         }
       ]);
     } finally {
@@ -341,17 +348,38 @@ export const RiskyAssistant: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Traceability Sources */}
-                  {m.sources && m.sources.length > 0 && (
-                    <div className="mt-2 flex items-center gap-1 flex-wrap">
-                      {m.sources.map((s, idx) => (
-                        <span
-                          key={idx}
-                          className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-white/[0.06] text-[var(--muted)] border border-white/10"
-                        >
-                          {s}
+                  {/* Traceability Sources & Engine Status Chip */}
+                  {m.sender === 'risky' && (
+                    <div className="mt-2.5 pt-2 border-t border-white/[0.08] flex items-center justify-between gap-2 flex-wrap">
+                      {/* Live · Gemini or Offline Fallback Chip */}
+                      {m.source === 'gemini' ? (
+                        <span className="inline-flex items-center gap-1.5 text-[9px] px-2 py-0.5 rounded-full font-mono font-medium bg-[#4ADE9A]/15 text-[#4ADE9A] border border-[#4ADE9A]/30">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#4ADE9A] animate-pulse" />
+                          Live · Gemini
                         </span>
-                      ))}
+                      ) : (
+                        <span
+                          title={m.fallbackReason ? `Reason: ${m.fallbackReason}` : 'Operating in deterministic offline fallback'}
+                          className="inline-flex items-center gap-1.5 text-[9px] px-2 py-0.5 rounded-full font-mono font-medium bg-[#F5C04A]/15 text-[#F5C04A] border border-[#F5C04A]/30 cursor-help"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#F5C04A]" />
+                          Offline Fallback
+                        </span>
+                      )}
+
+                      {/* Source attribution badges */}
+                      {m.sources && m.sources.length > 0 && (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {m.sources.slice(0, 2).map((s, idx) => (
+                            <span
+                              key={idx}
+                              className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-white/[0.06] text-[var(--muted)] border border-white/10"
+                            >
+                              {s}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
